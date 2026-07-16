@@ -1,0 +1,38 @@
+local ModuleStorage = {
+    CelestialConfig = "https://githubusercontent.com",
+}
+
+function ModuleStorage:Load(name)
+    local url = self[name]
+    if not url then
+        warn("[ModuleStorage] " .. tostring(name) .. " not found")
+        return nil
+    end
+
+    local success, result = pcall(function()
+        return loadstring(game:HttpGet(url))()
+    end)
+
+    if success then
+        return result
+    else
+        warn("[ModuleStorage] Failed to load " .. name .. ": " .. tostring(result))
+        return nil
+    end
+end
+
+function ModuleStorage:Add(name, url)
+    self[name] = url
+end
+
+function ModuleStorage:List()
+    local list = {}
+    for name, url in pairs(self) do
+        if type(url) == "string" then
+            table.insert(list, name)
+        end
+    end
+    return list
+end
+
+return ModuleStorage
