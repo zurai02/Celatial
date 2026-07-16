@@ -1,5 +1,6 @@
 local ModuleStorage = {
-    CelestialConfig = "https://githubusercontent.com",
+    Config = "https://githubusercontent.com",
+    PlayerTracker = "https://raw.githubusercontent.com/zurai02/Celatial/main/PlayerTracker",
 }
 
 function ModuleStorage:Load(name)
