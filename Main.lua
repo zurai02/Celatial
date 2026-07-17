@@ -76,7 +76,7 @@ local function gradient(rotation, keypoints, transKeypoints, p)
 	}, p)
 end
 
-local VERSION = "2.1.0"
+local VERSION = "2.2.0"
 local NAME = "Celestial"
 local FOLDER_ROOT = "Celestial"
 local FOLDER_CFG = FOLDER_ROOT .. "/Configs"
@@ -316,13 +316,13 @@ function Celestial:Notify(opts)
 	}, _notifHolder)
 	corner(14, card)
 	stroke(t.StrokeLight, 1, t.StrokeLightTrans, card)
-	make("Frame", {
+	local notifTint = make("Frame", {
 		Size = UDim2.new(1, 0, 1, 0),
 		BackgroundColor3 = t.Surface,
 		BackgroundTransparency = t.SurfaceDeepTrans,
-		ZIndex = 1,
-	}, card).ZIndex = 0
-	corner(14, card:FindFirstChildOfClass("Frame"))
+		ZIndex = 0,
+	}, card)
+	corner(14, notifTint)
 
 	local pill = make("Frame", {
 		Size = UDim2.new(0, 3, 0.62, 0),
@@ -600,7 +600,15 @@ function Celestial:CreateWindow(opts)
 		UIS.InputChanged:Connect(function(i)
 			if drag and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
 				local d = i.Position - startMouse
-				win.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+				local newX = startPos.X.Offset + d.X
+				local newY = startPos.Y.Offset + d.Y
+				-- keep at least ~40px of the topbar on-screen at all times so the
+				-- window can never be dragged somewhere it can't be dragged back from
+				local screenSize = overlay.AbsoluteSize
+				local minVisible = 40
+				newX = math.clamp(newX, minVisible - win.AbsoluteSize.X, screenSize.X - minVisible)
+				newY = math.clamp(newY, 0, screenSize.Y - minVisible)
+				win.Position = UDim2.new(startPos.X.Scale, newX, startPos.Y.Scale, newY)
 			end
 		end)
 	end
@@ -679,18 +687,26 @@ function Celestial:CreateWindow(opts)
 		tw(topbar, T_MED, { BackgroundColor3 = newTheme.TopbarBg, BackgroundTransparency = newTheme.TopbarTrans }):Play()
 	end)
 
+	local function pointInside(pos, inst)
+		if not inst then return false end
+		local absPos = inst.AbsolutePosition
+		local absSize = inst.AbsoluteSize
+		return pos.X >= absPos.X and pos.X <= absPos.X + absSize.X and pos.Y >= absPos.Y and pos.Y <= absPos.Y + absSize.Y
+	end
+
 	UIS.InputBegan:Connect(function(input, gpe)
 		if gpe then return end
 		if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
 		for _, popup in ipairs(Window._openPopups) do
 			if popup._isOpen and popup._clickOutside then
 				local pos = input.Position
-				local absPos = popup._container and popup._container.AbsolutePosition
-				local absSize = popup._container and popup._container.AbsoluteSize
-				if absPos and absSize then
-					if pos.X < absPos.X or pos.X > absPos.X + absSize.X or pos.Y < absPos.Y or pos.Y > absPos.Y + absSize.Y then
-						popup._clickOutside()
-					end
+				-- A click on the trigger itself (the button that opened this
+				-- popup) is NOT "outside" — its own click handler already
+				-- manages the toggle. Without this, the outside-click closer
+				-- and the trigger's toggle would race and the popup could
+				-- flicker or fail to close on the very click meant to close it.
+				if not pointInside(pos, popup._container) and not pointInside(pos, popup._trigger) then
+					popup._clickOutside()
 				end
 			end
 		end
@@ -946,7 +962,7 @@ function Celestial:CreateWindow(opts)
 				if s then s.Color = newTheme.StrokeLight end
 			end)
 			return {
-				SetTitle = function(t) titleLabel.Text = t recalcHeight() end,
+				SetTitle = function(newTitle) titleLabel.Text = newTitle recalcHeight() end,
 				SetContent = function(c)
 					if contentLabel then
 						contentLabel.Text = c
@@ -1015,7 +1031,7 @@ function Celestial:CreateWindow(opts)
 				NumberSequenceKeypoint.new(0, 0.75),
 				NumberSequenceKeypoint.new(1, 1),
 			}), cBtn)
-			cBtn.MouseButton1Click:Connect(function(x, y)
+			cBtn.MouseButton1Click:Connect(function()
 				tw(cBtn, T_FAST, { Size = UDim2.new(0, 72, 0, 28), Position = UDim2.new(1, -86, 0.5, -14) }):Play()
 				ripple(row, cBtn.AbsolutePosition.X - row.AbsolutePosition.X + 38, 25)
 				task.delay(0.1, function() tw(cBtn, T_SPRING, { Size = UDim2.new(0, 76, 0, 30), Position = UDim2.new(1, -88, 0.5, -15) }):Play() end)
@@ -1321,13 +1337,21 @@ function Celestial:CreateWindow(opts)
 			stroke(theme.StrokeLight, 1, theme.StrokeLightTrans, panel)
 			listLayout(Enum.FillDirection.Vertical, Enum.SortOrder.LayoutOrder, 3, panel)
 			pad(5, 5, 5, 5, panel)
-			local popupEntry = { _isOpen = false, _container = panel, _clickOutside = nil }
+			local popupEntry = { _isOpen = false, _container = panel, _trigger = selBtn, _clickOutside = nil }
 			table.insert(self._window._openPopups, popupEntry)
 			local function positionPanel()
 				local absPos = selBtn.AbsolutePosition
 				local absSize = selBtn.AbsoluteSize
-				panel.Position = UDim2.new(0, absPos.X, 0, absPos.Y + absSize.Y + 6)
-				panel.Size = UDim2.new(0, absSize.X, 0, 0)
+				local screenSize = self._window._overlay.AbsoluteSize
+				local panelH = math.max(panel.Size.Y.Offset, #o.Options * 35 + 10)
+				local px = math.clamp(absPos.X, 6, math.max(6, screenSize.X - absSize.X - 6))
+				local py = absPos.Y + absSize.Y + 6
+				-- flip above the trigger if there isn't room below
+				if py + panelH > screenSize.Y - 6 and absPos.Y - panelH - 6 >= 6 then
+					py = absPos.Y - panelH - 6
+				end
+				panel.Position = UDim2.new(0, px, 0, py)
+				panel.Size = UDim2.new(0, absSize.X, 0, panel.Size.Y.Offset)
 			end
 			local trackConn1, trackConn2
 			local function startTracking()
@@ -1480,7 +1504,7 @@ function Celestial:CreateWindow(opts)
 			stroke(theme.StrokeLight, 1.5, theme.StrokeLightTrans, preview)
 			local pickerOpen = false
 			local picker = nil
-			local popupEntry = { _isOpen = false, _container = nil, _clickOutside = nil }
+			local popupEntry = { _isOpen = false, _container = nil, _trigger = preview, _clickOutside = nil }
 			table.insert(self._window._openPopups, popupEntry)
 			local function closePicker()
 				if not pickerOpen then return end
@@ -1498,9 +1522,16 @@ function Celestial:CreateWindow(opts)
 				if not pickerOpen then popupEntry._isOpen = false return end
 				local absPos = preview.AbsolutePosition
 				local absSize = preview.AbsoluteSize
+				local screenSize = self._window._overlay.AbsoluteSize
+				local pickerW, pickerH = 210, 148
+				local px = math.clamp(absPos.X - 172, 6, math.max(6, screenSize.X - pickerW - 6))
+				local py = absPos.Y + absSize.Y + 6
+				if py + pickerH > screenSize.Y - 6 and absPos.Y - pickerH - 6 >= 6 then
+					py = absPos.Y - pickerH - 6
+				end
 				picker = make("Frame", {
-					Size = UDim2.new(0, 210, 0, 148),
-					Position = UDim2.new(0, absPos.X - 172, 0, absPos.Y + absSize.Y + 6),
+					Size = UDim2.new(0, pickerW, 0, pickerH),
+					Position = UDim2.new(0, px, 0, py),
 					BackgroundColor3 = theme.WindowBg,
 					BackgroundTransparency = 0.03,
 					ZIndex = 250,
