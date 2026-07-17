@@ -210,7 +210,7 @@ Config.PlayerConnections = {}
 
 function Config.TrackPlayer(player)
 	if Config.Players[player.UserId] then return end
-	
+
 	local data = {
 		UserId = player.UserId,
 		Name = player.Name,
@@ -236,9 +236,9 @@ function Config.TrackPlayer(player)
 		JoinedAt = tick(),
 		DeathCount = 0,
 	}
-	
+
 	Config.Players[player.UserId] = data
-	
+
 	local function updateCharacter(character)
 		if not character then
 			data.Character = nil
@@ -247,21 +247,21 @@ function Config.TrackPlayer(player)
 			data.IsAlive = false
 			return
 		end
-		
+
 		data.Character = character
-		
+
 		local humanoid = character:WaitForChild("Humanoid", 5)
 		local rootPart = character:WaitForChild("HumanoidRootPart", 5)
-		
+
 		if humanoid and rootPart then
 			data.Humanoid = humanoid
 			data.RootPart = rootPart
 			data.MaxHealth = humanoid.MaxHealth
 			data.IsLoaded = true
-			
+
 			local conn = Config.RUN.Heartbeat:Connect(function()
 				if not character.Parent or not rootPart.Parent then return end
-				
+
 				data.LastPosition = data.Position
 				data.Position = rootPart.Position
 				data.Velocity = rootPart.Velocity
@@ -271,29 +271,29 @@ function Config.TrackPlayer(player)
 				data.IsAlive = humanoid.Health > 0
 				data.Team = player.Team and player.Team.Name or nil
 				data.LastSeen = tick()
-				
+
 				table.insert(data.HealthHistory, {
 					Time = tick(),
 					Health = data.Health,
 					Change = data.Health - data.LastHealth,
 				})
-				
+
 				if #data.HealthHistory > 100 then
 					table.remove(data.HealthHistory, 1)
 				end
-				
+
 				table.insert(data.PositionHistory, {
 					Time = tick(),
 					Position = data.Position,
 				})
-				
+
 				if #data.PositionHistory > 60 then
 					table.remove(data.PositionHistory, 1)
 				end
 			end)
-			
+
 			table.insert(Config.PlayerConnections, conn)
-			
+
 			humanoid.Died:Connect(function()
 				data.IsAlive = false
 				data.LastHealth = data.Health
@@ -302,11 +302,11 @@ function Config.TrackPlayer(player)
 			end)
 		end
 	end
-	
+
 	if player.Character then
 		updateCharacter(player.Character)
 	end
-	
+
 	player.CharacterAdded:Connect(updateCharacter)
 	player.CharacterRemoving:Connect(function()
 		data.IsAlive = false
@@ -362,10 +362,10 @@ end
 function Config.GetClosestPlayer(userId)
 	local myPos = Config.GetPlayerPosition(userId)
 	if not myPos then return nil end
-	
+
 	local closest = nil
 	local closestDist = math.huge
-	
+
 	for uid, data in pairs(Config.Players) do
 		if uid ~= userId and data.IsAlive and data.RootPart then
 			local dist = (myPos - data.Position).Magnitude
@@ -375,7 +375,7 @@ function Config.GetClosestPlayer(userId)
 			end
 		end
 	end
-	
+
 	return closest, closestDist
 end
 
@@ -397,9 +397,9 @@ function Config.InitPlayerTracking()
 	for _, player in ipairs(Config.PS:GetPlayers()) do
 		Config.TrackPlayer(player)
 	end
-	
+
 	Config.PS.PlayerAdded:Connect(Config.TrackPlayer)
-	
+
 	Config.PS.PlayerRemoving:Connect(function(player)
 		Config.Players[player.UserId] = nil
 	end)
@@ -425,17 +425,17 @@ end
 if Config.PS.LocalPlayer then
 	local mouse = Config.PS.LocalPlayer:GetMouse()
 	Config.Input.Mouse = mouse
-	
+
 	mouse.Move:Connect(function()
 		Config.Input.MousePosition = Vector2.new(mouse.X, mouse.Y)
 	end)
-	
+
 	Config.RUN.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.Keyboard then
 			Config.Input.Keys[input.KeyCode] = true
 		end
 	end)
-	
+
 	Config.RUN.InputEnded:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.Keyboard then
 			Config.Input.Keys[input.KeyCode] = false
@@ -486,19 +486,19 @@ end
 function Config.RaycastToPlayer(targetUserId, maxDist)
 	local localPlayer = Config.PS.LocalPlayer
 	if not localPlayer or not localPlayer.Character then return false end
-	
+
 	local myRoot = localPlayer.Character:FindFirstChild("HumanoidRootPart")
 	local targetData = Config.Players[targetUserId]
 	if not myRoot or not targetData or not targetData.RootPart then return false end
-	
+
 	local origin = myRoot.Position
 	local targetPos = targetData.RootPart.Position
 	local direction = (targetPos - origin).Unit * (maxDist or 500)
-	
+
 	local params = RaycastParams.new()
 	params.FilterDescendantsInstances = {localPlayer.Character}
 	params.FilterType = Enum.RaycastFilterType.Blacklist
-	
+
 	local result = workspace:Raycast(origin, direction, params)
 	if result then
 		local hitModel = result.Instance:FindFirstAncestorOfClass("Model")
@@ -506,7 +506,7 @@ function Config.RaycastToPlayer(targetUserId, maxDist)
 			return true, result
 		end
 	end
-	
+
 	return false, nil
 end
 
@@ -521,19 +521,19 @@ function Config.ESP:AddBox(player, color)
 	if not player or not player.Character then return end
 	local root = player.Character:FindFirstChild("HumanoidRootPart")
 	if not root then return end
-	
+
 	local box = Drawing.new("Square")
 	box.Visible = false
 	box.Thickness = 1
 	box.Color = color or Color3.new(1, 1, 1)
 	box.Filled = false
 	box.Transparency = 1
-	
+
 	Config.ESP.Objects[player.UserId] = {
 		Box = box,
 		Player = player,
 	}
-	
+
 	return box
 end
 
@@ -570,13 +570,13 @@ Config.Notifications = {}
 
 function Config.Notify(title, text, duration)
 	duration = duration or 3
-	
+
 	if Config.NS then
 		Config.SafeCall(function()
 			Config.NS:SendNotification(title, text, "", duration)
 		end)
 	end
-	
+
 	table.insert(Config.Notifications, {
 		Title = title,
 		Text = text,
