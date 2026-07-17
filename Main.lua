@@ -1,4 +1,5 @@
 --!native
+--!Optimize 2
 local Config = loadstring(game:HttpGet("https://raw.githubusercontent.com/zurai02/Celatial/main/CelestialConfig.lua"))()
 
 local UIS = Config.Services.UserInputService
