@@ -92,8 +92,7 @@ C.TW = {
 	Snap    = C.TI.new(0.05, Enum.EasingStyle.Quad,   Enum.EasingDirection.Out),
 }
 
--- FIX: Renamed tween preset aliases to avoid collisions with C.TS (TweenService)
--- and C.TM (Teams). Old names (C.TF, C.TM, C.TS, etc.) were shadowing services.
+-- Shorthand aliases (avoid shadowing C.TS / C.TM)
 C.TwF  = C.TW.Fast
 C.TwM  = C.TW.Med
 C.TwS  = C.TW.Slow
@@ -110,7 +109,6 @@ function C.Tween(inst, info, goals)
 	if not inst or not inst.Parent then return nil end
 	local old = C._tweens[inst]
 	if old then pcall(function() old:Cancel() end) end
-	-- FIX: Use C.SV.TweenService instead of the broken C.TS alias
 	local t = C.SV.TweenService:Create(inst, info, goals)
 	C._tweens[inst] = t
 	t:Play()
@@ -128,7 +126,7 @@ C.Tw = C.Tween
 function C.Safe(fn, ...)
 	if type(fn) ~= "function" then return nil end
 	local ok, r = pcall(fn, ...)
-	if not ok then warn("[C] "..tostring(r)) return nil end
+	if not ok then warn("[Celestial] " .. tostring(r)) return nil end
 	return r
 end
 
@@ -206,8 +204,6 @@ function C.Col.ToHSV(c) return Color3.toHSV(c) end
 function C.Col.Darken(c, amt) local h, s, v = C.Col.ToHSV(c) return C.Col.HSV(h, s, math.max(0, v - amt)) end
 function C.Col.Lighten(c, amt) local h, s, v = C.Col.ToHSV(c) return C.Col.HSV(h, s, math.min(1, v + amt)) end
 function C.Col.Random() return C.Col.HSV(math.random(), math.random(0.5, 1), math.random(0.7, 1)) end
--- FIX: WithA now actually constructs a proper ColorSequence instead of ignoring the alpha param.
--- The 'a' parameter is kept for API compatibility but alpha should be applied via Transparency props.
 function C.Col.WithA(c, a)
 	return ColorSequence.new({
 		ColorSequenceKeypoint.new(0, c),
@@ -283,7 +279,6 @@ function C.N.Ripple(p, x, y, th)
 	C.Tween(r, C.TI.new(0.45, Enum.EasingStyle.Quint), {Size = UDim2.new(0, 130, 0, 130), BackgroundTransparency = 1})
 	C.Delay(0.45, function() if r and r.Parent then r:Destroy() end end)
 end
--- FIX: Now supports both UIListLayout and UIGridLayout for canvas sizing.
 function C.N.UpdCanvas(f)
 	local l = f:FindFirstChildOfClass("UIListLayout") or f:FindFirstChildOfClass("UIGridLayout")
 	if l then f.CanvasSize = UDim2.new(0, 0, 0, l.AbsoluteContentSize.Y + 24) end
@@ -379,10 +374,10 @@ function C.GetFlag(n) return C.Flags[n] end
 function C.ClearFlags() C.Flags = {} end
 
 ------------------------------------------------------------------------
--- Player Tracking  (FIXED: memory leaks via Maid cleanup)
+-- Player Tracking
 ------------------------------------------------------------------------
 C.PD = {}
-C.PC = {} -- uid -> Maid (character-scoped connections)
+C.PC = {}
 
 function C.Track(plr)
 	if C.PD[plr.UserId] then return end
@@ -396,7 +391,7 @@ function C.Track(plr)
 		HealthHistory = {}, PositionHistory = {},
 		IsAlive = false, IsLoaded = false, LastSeen = tick(),
 		JoinedAt = tick(), DeathCount = 0,
-		_persistent = {}, -- player-scoped connections (CharacterAdded, CharacterRemoving)
+		_persistent = {},
 	}
 	C.PD[plr.UserId] = d
 
@@ -480,7 +475,7 @@ function C.InitTrack()
 end
 
 ------------------------------------------------------------------------
--- Input  (FIXED: C.Inp.Pressed now detects single-frame keypresses)
+-- Input
 ------------------------------------------------------------------------
 C.Inp = {Keys = {}, JustPressed = {}, MousePos = Vector2.zero}
 if C.PS.LocalPlayer then
@@ -506,7 +501,6 @@ C.RUN.InputEnded:Connect(function(i)
 	end
 end)
 function C.Inp.Down(k) return C.Inp.Keys[k] == true end
--- FIX: Pressed now returns true only on the frame the key was first pressed.
 function C.Inp.Pressed(k) return C.Inp.JustPressed[k] == _inputFrame end
 
 ------------------------------------------------------------------------
@@ -571,7 +565,7 @@ function C.Drw.Box(pos, sz, c, th, vis, fill)
 end
 
 ------------------------------------------------------------------------
--- ESP  (FIXED: distance-scaled boxes + safer cleanup)
+-- ESP
 ------------------------------------------------------------------------
 C.ESP = {Objects = {}}
 function C.ESP.Box(plr, color)
@@ -596,7 +590,6 @@ function C.ESP.Clear()
 	end
 	C.ESP.Objects = {}
 end
--- FIX: Boxes now scale roughly with distance instead of being locked to 100x100.
 function C.ESP.Update()
 	for uid, o in pairs(C.ESP.Objects) do
 		local d = C.PD[uid]
@@ -618,7 +611,7 @@ function C.ESP.Update()
 end
 
 ------------------------------------------------------------------------
--- Notifications  (FIXED: uses renamed tween aliases)
+-- Notifications
 ------------------------------------------------------------------------
 C.NL = nil
 function C.EnsureNotify()
@@ -662,7 +655,6 @@ function C.Notify(o)
 	C.N.Corner(2, bar)
 	card.Position = UDim2.new(1, 24, 0, 0)
 	card.BackgroundTransparency = 1
-	-- FIX: Use renamed aliases C.TwSO and C.TwM
 	C.Tween(card, C.TwSO, {Position = UDim2.new(0, 0, 0, 0)})
 	C.Tween(card, C.TwM, {BackgroundTransparency = 0.06})
 	C.Tween(bar, C.TI.new(dur, Enum.EasingStyle.Linear), {Size = UDim2.new(0, 0, 1, 0)})
@@ -681,7 +673,7 @@ end
 ------------------------------------------------------------------------
 -- Constants
 ------------------------------------------------------------------------
-C.VERSION     = "2.3.2"
+C.VERSION     = "3.0.0"
 C.NAME        = "Celestial"
 C.FOLDER_ROOT = "Celestial"
 C.FOLDER_CFG  = C.FOLDER_ROOT .. "/Configs"
