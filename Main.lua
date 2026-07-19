@@ -2,7 +2,7 @@
 --!strict
 --!native
 
-local Config = loadstring(game:HttpGet("https://raw.githubusercontent.com/YOUR_USERNAME/celestial-ui/main/CelestialConfig.lua"))()
+local Config = loadstring(game:HttpGet("https://raw.githubusercontent.com/zurai02/Celatial/main/C.lua"))()
 
 -- Fallback if Config fails to load — enough to keep the library running
 -- standalone, just without the shared util layer.
