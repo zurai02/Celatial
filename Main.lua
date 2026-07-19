@@ -2,7 +2,7 @@
 --!strict
 --!native
 
-local Config = loadstring(game:HttpGet("https://raw.githubusercontent.com/zurai02/Celatial/main/C.lua"))()
+local Config = loadstring(game:HttpGet("https://raw.githubusercontent.com/YOUR_USERNAME/celestial-ui/main/CelestialConfig.lua"))()
 
 -- Fallback if Config fails to load — enough to keep the library running
 -- standalone, just without the shared util layer.
@@ -73,7 +73,7 @@ local stroke = Config.N.Stroke
 local listLayout = Config.N.List
 local gradient = Config.N.Gradient
 
-local VERSION = "2.2.0"
+local VERSION = "3.0.0"
 local NAME = "Celestial"
 local FOLDER_ROOT = "Celestial"
 local FOLDER_CFG = FOLDER_ROOT .. "/Configs"
@@ -154,6 +154,67 @@ Celestial.Windows = {}
 Celestial.Flags = {}
 Celestial.Version = VERSION
 Celestial.Name = NAME
+
+-- Every Flag'd control (toggle/slider/dropdown/etc) registers its Set
+-- function here so Celestial:LoadConfiguration() can restore it later.
+Celestial._flagRegistry = {}
+-- The config file path from the most recently created window that has
+-- ConfigurationSaving enabled — what LoadConfiguration()/autosave use.
+Celestial._activeCfgFile = nil
+
+-- Called by every Flag'd control whenever its value changes. Writes the
+-- whole Flags table to disk immediately so nothing is lost if the game
+-- crashes/closes before the user thinks to save.
+local function autoSaveFlags()
+	if not Celestial._activeCfgFile then return end
+	local ok, enc = pcall(function() return Http:JSONEncode(Celestial.Flags) end)
+	if ok then safecall(writefile, Celestial._activeCfgFile, enc) end
+end
+
+-- Called by every Flag'd control right after creation to register its
+-- Set(value) function under that flag name.
+local function registerFlag(flagName, setFn)
+	if not flagName then return end
+	Celestial._flagRegistry[flagName] = setFn
+end
+
+-- Call this ONCE, at the very end of your script, after every tab/control
+-- has been created. It reads the saved config file (if ConfigurationSaving
+-- was enabled) and applies each saved value back onto its matching
+-- Flag'd control via the Set() function that control registered.
+function Celestial:LoadConfiguration()
+	if not Celestial._activeCfgFile then
+		warn("[Celestial] LoadConfiguration() called but no window has ConfigurationSaving enabled.")
+		return false
+	end
+	if not safecall(isfile, Celestial._activeCfgFile) then
+		-- No saved file yet (first run) — nothing to restore, not an error.
+		return false
+	end
+	local raw = safecall(readfile, Celestial._activeCfgFile)
+	if not raw then return false end
+	local ok, decoded = pcall(function() return Http:JSONDecode(raw) end)
+	if not ok or type(decoded) ~= "table" then
+		warn("[Celestial] LoadConfiguration() failed to parse saved config.")
+		return false
+	end
+	local restored = 0
+	for flagName, value in pairs(decoded) do
+		local setFn = Celestial._flagRegistry[flagName]
+		if setFn then
+			safecall(setFn, value)
+			restored += 1
+		end
+		Celestial.Flags[flagName] = value
+	end
+	self:Notify({
+		Title = "Configuration Loaded",
+		Content = restored .. " setting(s) restored",
+		Duration = 2.5,
+		Type = "success",
+	})
+	return true
+end
 
 -- Guard: ensure at least one theme exists
 if not next(Themes) then
@@ -977,6 +1038,7 @@ function Celestial:CreateWindow(opts)
 	end)
 
 	if cfgOpts and cfgOpts.Enabled then
+		Celestial._activeCfgFile = cfgFile
 		function Window:SaveConfig(data)
 			local ok, enc = pcall(function() return Http:JSONEncode(data) end)
 			if ok then safecall(writefile, cfgFile, enc) end
@@ -1015,7 +1077,62 @@ function Celestial:CreateWindow(opts)
 		if tab and tab._activate then tab._activate() end
 	end
 
-	function Window:CreateTab(tabOpts)
+	-- Collapsible sidebar section. Useful once you have more than ~5-6
+	-- tabs and want to group them (e.g. "Combat" / "Visuals" / "Misc").
+	-- Group:CreateTab(opts) works exactly like Window:CreateTab(opts).
+	function Window:CreateTabGroup(name)
+		local theme = self._theme
+		local header = make("TextButton", {
+			Size = UDim2.new(1, 0, 0, 24),
+			BackgroundTransparency = 1,
+			Text = "",
+			AutoButtonColor = false,
+		}, self._sidebar)
+		local headerLabel = make("TextLabel", {
+			Size = UDim2.new(1, -20, 1, 0),
+			BackgroundTransparency = 1,
+			Text = string.upper(name),
+			TextColor3 = theme.TextMuted,
+			Font = Enum.Font.GothamBold,
+			TextSize = 10,
+			TextXAlignment = Enum.TextXAlignment.Left,
+		}, header)
+		local chevron = make("TextLabel", {
+			Position = UDim2.new(1, -16, 0, 0),
+			Size = UDim2.new(0, 16, 1, 0),
+			BackgroundTransparency = 1,
+			Text = "⌄",
+			TextColor3 = theme.TextMuted,
+			Font = Enum.Font.GothamBold,
+			TextSize = 12,
+		}, header)
+		local subContainer = make("Frame", {
+			Size = UDim2.new(1, 0, 0, 0),
+			AutomaticSize = Enum.AutomaticSize.Y,
+			BackgroundTransparency = 1,
+			ClipsDescendants = true,
+		}, self._sidebar)
+		listLayout(Enum.FillDirection.Vertical, Enum.SortOrder.LayoutOrder, 4, subContainer)
+
+		local collapsed = false
+		header.MouseButton1Click:Connect(function()
+			collapsed = not collapsed
+			subContainer.Visible = not collapsed
+			tw(chevron, T_FAST, { Rotation = collapsed and -90 or 0 }):Play()
+		end)
+		self:_onThemeChange(function(newTheme)
+			headerLabel.TextColor3 = newTheme.TextMuted
+			chevron.TextColor3 = newTheme.TextMuted
+		end)
+
+		local Group = {}
+		function Group:CreateTab(opts)
+			return Window:CreateTab(opts, subContainer)
+		end
+		return Group
+	end
+
+	function Window:CreateTab(tabOpts, parentOverride)
 		local tabName = tabOpts.Name or "Tab"
 		local theme = self._theme
 
@@ -1027,7 +1144,7 @@ function Celestial:CreateWindow(opts)
 			Text = "",
 			AutoButtonColor = false,
 			ZIndex = 5,
-		}, self._sidebar)
+		}, parentOverride or self._sidebar)
 		corner(10, btn)
 
 		local textOffset = 14
@@ -1272,6 +1389,65 @@ function Celestial:CreateWindow(opts)
 			return { Set = setValue }
 		end
 
+		-- Indeterminate loading indicator for async operations. Returns
+		-- Start()/Stop() — the spinner only animates while running so it
+		-- doesn't burn a Heartbeat connection when idle.
+		function Tab:CreateSpinner(o)
+			o = o or {}
+			local row = glassRow(50)
+			make("TextLabel", {
+				Position = UDim2.new(0, 46, 0, 0),
+				Size = UDim2.new(1, -60, 1, 0),
+				BackgroundTransparency = 1,
+				Text = o.Name or "Loading...",
+				TextColor3 = theme.TextSecondary,
+				Font = Enum.Font.Gotham,
+				TextSize = 12,
+				TextXAlignment = Enum.TextXAlignment.Left,
+			}, row)
+			local ring = make("Frame", {
+				Position = UDim2.new(0, 16, 0.5, -9),
+				Size = UDim2.new(0, 18, 0, 18),
+				BackgroundTransparency = 1,
+				Visible = false,
+			}, row)
+			corner(9, ring)
+			stroke(theme.Accent, 2, 0.15, ring)
+			local ringStroke = ring:FindFirstChildWhichIsA("UIStroke")
+			-- Fake a spinning arc by masking 3/4 of the ring with a rotating cover
+			local mask = make("Frame", {
+				Size = UDim2.new(0.6, 0, 1.2, 0),
+				Position = UDim2.new(0.4, 0, -0.1, 0),
+				BackgroundColor3 = theme.Surface,
+				BackgroundTransparency = theme.SurfaceDeepTrans,
+				ZIndex = 2,
+			}, ring)
+			local running = false
+			local spinConn
+			local function start()
+				if running then return end
+				running = true
+				ring.Visible = true
+				local angle = 0
+				spinConn = Run.RenderStepped:Connect(function(dt)
+					angle = (angle + dt * 360) % 360
+					ring.Rotation = angle
+				end)
+			end
+			local function stop()
+				running = false
+				ring.Visible = false
+				if spinConn then spinConn:Disconnect() spinConn = nil end
+			end
+			self._window:_onThemeChange(function(newTheme)
+				if ringStroke then ringStroke.Color = newTheme.Accent end
+				mask.BackgroundColor3 = newTheme.Surface
+				mask.BackgroundTransparency = newTheme.SurfaceDeepTrans
+			end)
+			if o.AutoStart then start() end
+			return { Start = start, Stop = stop, IsRunning = function() return running end }
+		end
+
 		function Tab:CreateParagraph(o)
 			local titleText = o.Title or ""
 			local contentText = o.Content or ""
@@ -1470,6 +1646,7 @@ function Celestial:CreateWindow(opts)
 				playSound(SOUND_TOGGLE)
 				safecall(o.Callback, val)
 				if o.Flag then Celestial.Flags[o.Flag] = val end
+				if o.Flag then autoSaveFlags() end
 			end
 			clickArea.MouseButton1Down:Connect(function() tw(knob, T_FAST, { Size = UDim2.new(0, 24, 0, 20) }):Play() end)
 			clickArea.MouseButton1Up:Connect(function() setState(not state) end)
@@ -1479,6 +1656,7 @@ function Celestial:CreateWindow(opts)
 				local s = track:FindFirstChildWhichIsA("UIStroke")
 				if s then s.Color = newTheme.StrokeLight end
 			end)
+			if o.Flag then registerFlag(o.Flag, setState) end
 			return { Set = setState }
 		end
 
@@ -1560,6 +1738,7 @@ function Celestial:CreateWindow(opts)
 				valLabel.Text = tostring(v) .. (o.Suffix or "")
 				safecall(o.Callback, v)
 				if o.Flag then Celestial.Flags[o.Flag] = v end
+				if o.Flag then autoSaveFlags() end
 			end
 			local function onInput(input)
 				local rel = math.clamp((input.Position.X - trackBg.AbsolutePosition.X) / trackBg.AbsoluteSize.X, 0, 1)
@@ -1590,6 +1769,7 @@ function Celestial:CreateWindow(opts)
 				local s = thumb:FindFirstChildWhichIsA("UIStroke")
 				if s then s.Color = newTheme.Accent end
 			end)
+			if o.Flag then registerFlag(o.Flag, snapTo) end
 			return { Set = snapTo }
 		end
 
@@ -1635,6 +1815,7 @@ function Celestial:CreateWindow(opts)
 					if o.Numeric then val = tostring(tonumber(val) or 0) end
 					safecall(o.Callback, val)
 					if o.Flag then Celestial.Flags[o.Flag] = val end
+					if o.Flag then autoSaveFlags() end
 				end
 			end)
 			self._window:_onThemeChange(function(newTheme)
@@ -1644,6 +1825,14 @@ function Celestial:CreateWindow(opts)
 				box.TextColor3 = newTheme.TextPrimary
 				box.PlaceholderColor3 = newTheme.TextMuted
 			end)
+			local inputSet = function(val)
+				box.Text = tostring(val)
+				safecall(o.Callback, val)
+				if o.Flag then Celestial.Flags[o.Flag] = val end
+				if o.Flag then autoSaveFlags() end
+			end
+			if o.Flag then registerFlag(o.Flag, inputSet) end
+			return { Set = inputSet }
 		end
 
 		function Tab:CreateDropdown(o)
@@ -1779,11 +1968,13 @@ function Celestial:CreateWindow(opts)
 							selBtn.Text = #chosen > 0 and selected or (o.Options[1] or "")
 							safecall(o.Callback, chosen)
 							if o.Flag then Celestial.Flags[o.Flag] = chosen end
+							if o.Flag then autoSaveFlags() end
 						else
 							selected = opt
 							selBtn.Text = opt
 							safecall(o.Callback, opt)
 							if o.Flag then Celestial.Flags[o.Flag] = opt end
+							if o.Flag then autoSaveFlags() end
 							open = false
 							popupEntry._isOpen = false
 							stopTracking()
@@ -1837,13 +2028,16 @@ function Celestial:CreateWindow(opts)
 				if s3 then s3.Color = newTheme.StrokeLight end
 				if open then buildItems(o.Options) end
 			end)
+			local dropdownSet = function(val)
+				selected = val
+				selBtn.Text = val
+				safecall(o.Callback, val)
+				if o.Flag then Celestial.Flags[o.Flag] = val end
+				if o.Flag then autoSaveFlags() end
+			end
+			if o.Flag then registerFlag(o.Flag, dropdownSet) end
 			return {
-				Set = function(val)
-					selected = val
-					selBtn.Text = val
-					safecall(o.Callback, val)
-					if o.Flag then Celestial.Flags[o.Flag] = val end
-				end,
+				Set = dropdownSet,
 				Refresh = function(newOpts)
 					o.Options = newOpts
 					if open then positionPanel() buildItems(newOpts) end
@@ -1919,6 +2113,7 @@ function Celestial:CreateWindow(opts)
 					preview.BackgroundColor3 = color
 					safecall(o.Callback, color)
 					if o.Flag then Celestial.Flags[o.Flag] = color end
+					if o.Flag then autoSaveFlags() end
 				end
 				local function makeSlider(labelText, yPos, gradientSeq, initialVal, callback)
 					make("TextLabel", {
@@ -1996,14 +2191,15 @@ function Celestial:CreateWindow(opts)
 					end
 				end
 			end)
-			return {
-				Set = function(c)
-					color = c
-					preview.BackgroundColor3 = c
-					safecall(o.Callback, c)
-					if o.Flag then Celestial.Flags[o.Flag] = c end
-				end,
-			}
+			local colorSet = function(c)
+				color = c
+				preview.BackgroundColor3 = c
+				safecall(o.Callback, c)
+				if o.Flag then Celestial.Flags[o.Flag] = c end
+				if o.Flag then autoSaveFlags() end
+			end
+			if o.Flag then registerFlag(o.Flag, colorSet) end
+			return { Set = colorSet }
 		end
 
 		function Tab:CreateKeybind(o)
@@ -2052,11 +2248,13 @@ function Celestial:CreateWindow(opts)
 					cancelBind()
 					safecall(o.Callback, key)
 					if o.Flag then Celestial.Flags[o.Flag] = key end
+					if o.Flag then autoSaveFlags() end
 				elseif i.UserInputType == Enum.UserInputType.Gamepad1 then
 					key = i.KeyCode
 					cancelBind()
 					safecall(o.Callback, key)
 					if o.Flag then Celestial.Flags[o.Flag] = key end
+					if o.Flag then autoSaveFlags() end
 				elseif i.UserInputType == Enum.UserInputType.Touch then
 					cancelBind()
 				end
@@ -2067,14 +2265,15 @@ function Celestial:CreateWindow(opts)
 				local s = keyBtn:FindFirstChildWhichIsA("UIStroke")
 				if s then s.Color = newTheme.Accent end
 			end)
-			return {
-				Set = function(k)
-					key = k
-					keyBtn.Text = k.Name
-					safecall(o.Callback, k)
-					if o.Flag then Celestial.Flags[o.Flag] = k end
-				end,
-			}
+			local keybindSet = function(k)
+				key = k
+				keyBtn.Text = k.Name
+				safecall(o.Callback, k)
+				if o.Flag then Celestial.Flags[o.Flag] = k end
+				if o.Flag then autoSaveFlags() end
+			end
+			if o.Flag then registerFlag(o.Flag, keybindSet) end
+			return { Set = keybindSet }
 		end
 
 		table.insert(self._tabs, Tab)
