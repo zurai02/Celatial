@@ -1,167 +1,165 @@
 --[[
-    Celestial Middleware: NetworkTransformer
+    Celestial Middleware: ErrorHandler
     ------------------------------------------------
-    Wraps outgoing/incoming network payloads (e.g. config syncs, remote
-    telemetry, webhook posts) with lightweight compression so large
-    JSON/string payloads use less bandwidth. Designed to slot into the
-    same Config.SV / safecall pattern used by the rest of Celestial.
+    Wraps unsafe data transformations (JSON decode, deserialization,
+    config parsing, callback execution) in pcall so a bad payload or
+    a user Callback error never crashes the calling thread. On failure
+    it returns a default fallback schema instead, and optionally logs
+    /notifies through Celestial.
 
     Usage:
-        local NetworkTransformer = loadstring(readfile("NetworkTransformer.lua"))()
-        local mw = NetworkTransformer.New(Config)
+        local ErrorHandler = loadstring(readfile("ErrorHandler.lua"))()
+        local eh = ErrorHandler.New(Celestial) -- pass your Celestial instance (optional)
 
-        local compressed = mw:Compress(largeJsonString)
-        local original    = mw:Decompress(compressed)
+        local data = eh:Try(function()
+            return Http:JSONDecode(rawString)
+        end, { fallback = {} })
 
-        -- or wrap a raw HTTP call directly:
-        local ok, response = mw:Request({
-            Url = "https://example.com/api",
-            Method = "POST",
-            Body = someTable,        -- auto JSON-encoded + compressed
-        })
+        local safeFn = eh:Wrap(someCallback, { context = "Toggle:MyFlag" })
+        safeFn(true) -- never throws; logs + reports instead
+
+        eh:Validate(data, {
+            type = "table",
+            required = {"Name", "Value"},
+        }, { fallback = {Name = "unknown", Value = 0} })
 ]]
 
-local NetworkTransformer = {}
-NetworkTransformer.__index = NetworkTransformer
+local ErrorHandler = {}
+ErrorHandler.__index = ErrorHandler
 
-------------------------------------------------------------------------
--- Simple run-length + escape codec.
--- Roblox has no native zlib/gzip binding, so this trades some ratio for
--- zero external deps. It's most effective on repetitive JSON (padding,
--- repeated keys/whitespace) and safe on arbitrary binary-ish strings.
-------------------------------------------------------------------------
-local ESCAPE = "\1"      -- marks an encoded run
-local MAX_RUN = 255
-
-local function rleEncode(input)
-	local out = {}
-	local i, n = 1, #input
-	while i <= n do
-		local c = input:sub(i, i)
-		local runLen = 1
-		while i + runLen <= n and input:sub(i + runLen, i + runLen) == c and runLen < MAX_RUN do
-			runLen += 1
-		end
-		if runLen >= 4 or c == ESCAPE then
-			out[#out + 1] = ESCAPE .. string.char(runLen) .. c
-		else
-			out[#out + 1] = string.rep(c, runLen)
-		end
-		i += runLen
-	end
-	return table.concat(out)
-end
-
-local function rleDecode(input)
-	local out = {}
-	local i, n = 1, #input
-	while i <= n do
-		local c = input:sub(i, i)
-		if c == ESCAPE and i + 2 <= n then
-			local runLen = string.byte(input, i + 1)
-			local ch = input:sub(i + 2, i + 2)
-			out[#out + 1] = string.rep(ch, runLen)
-			i += 3
-		else
-			out[#out + 1] = c
-			i += 1
-		end
-	end
-	return table.concat(out)
-end
-
-------------------------------------------------------------------------
--- Constructor
-------------------------------------------------------------------------
-function NetworkTransformer.New(Config)
-	local self = setmetatable({}, NetworkTransformer)
-	self._safe = (Config and Config.Safe) or function(fn, ...)
-		local ok, r = pcall(fn, ...)
-		if not ok then warn("[NetworkTransformer] " .. tostring(r)) return nil end
-		return r
-	end
-	self._http = Config and Config.SV and Config.SV.HttpService
-	self.MinSizeToCompress = 96 -- bytes; skip tiny payloads, RLE overhead isn't worth it
+function ErrorHandler.New(celestial)
+	local self = setmetatable({}, ErrorHandler)
+	self._celestial = celestial -- optional, used for Notify() on failures
+	self.LogPrefix = "[Celestial ErrorHandler]"
+	self.Silent = false        -- set true to suppress warn() spam
+	self.NotifyOnError = false -- set true to surface a toast on failures
+	self._errorCount = 0
+	self._lastErrors = {}      -- ring buffer of recent errors for debugging
+	self._maxLastErrors = 20
 	return self
 end
 
--- Compress a string. Returns {c = true/false, d = data} so Decompress
--- knows whether the payload was actually transformed.
-function NetworkTransformer:Compress(str)
-	if type(str) ~= "string" then return {c = false, d = str} end
-	if #str < self.MinSizeToCompress then
-		return {c = false, d = str}
+function ErrorHandler:_record(context, err)
+	self._errorCount += 1
+	table.insert(self._lastErrors, {
+		time = os.clock(),
+		context = context or "unknown",
+		message = tostring(err),
+	})
+	if #self._lastErrors > self._maxLastErrors then
+		table.remove(self._lastErrors, 1)
 	end
-	local ok, encoded = pcall(rleEncode, str)
-	if not ok or #encoded >= #str then
-		-- compression didn't help (or errored) — send raw
-		return {c = false, d = str}
+	if not self.Silent then
+		warn(("%s [%s] %s"):format(self.LogPrefix, context or "unknown", tostring(err)))
 	end
-	return {c = true, d = encoded}
-end
-
-function NetworkTransformer:Decompress(payload)
-	if type(payload) ~= "table" then return payload end
-	if not payload.c then return payload.d end
-	local ok, decoded = pcall(rleDecode, payload.d)
-	if not ok then
-		warn("[NetworkTransformer] Failed to decompress payload, returning raw data")
-		return payload.d
+	if self.NotifyOnError and self._celestial and self._celestial.Notify then
+		pcall(function()
+			self._celestial:Notify({
+				Title = "Error handled",
+				Content = tostring(context or "unknown") .. " failed safely",
+				Type = "warn",
+				Duration = 2.5,
+			})
+		end)
 	end
-	return decoded
 end
 
 ------------------------------------------------------------------------
--- Convenience: wrap an HTTP request end-to-end.
--- Body (if a table) is JSON-encoded, then compressed before sending;
--- the response body is decompressed + JSON-decoded if it matches our
--- {c=, d=} envelope, otherwise returned as-is.
+-- Try: run fn(...) in pcall. On success returns fn's result(s) unwrapped.
+-- On failure, returns opts.fallback (default nil) and records the error.
 ------------------------------------------------------------------------
-function NetworkTransformer:Request(opts)
+function ErrorHandler:Try(fn, opts, ...)
 	opts = opts or {}
-	if not self._http then
-		return false, "HttpService unavailable"
+	if type(fn) ~= "function" then
+		self:_record(opts.context or "Try", "fn is not callable (" .. type(fn) .. ")")
+		return opts.fallback
 	end
-
-	local bodyStr = opts.Body
-	if type(bodyStr) == "table" then
-		local ok, encoded = pcall(function() return self._http:JSONEncode(bodyStr) end)
-		if not ok then return false, "Failed to JSON-encode body" end
-		bodyStr = encoded
+	local results = table.pack(pcall(fn, ...))
+	local ok = results[1]
+	if ok then
+		return table.unpack(results, 2, results.n)
 	end
-
-	local envelope = bodyStr and self:Compress(bodyStr) or nil
-
-	local ok, result = pcall(function()
-		if opts.Method == "POST" then
-			return self._http:PostAsync(
-				opts.Url,
-				envelope and self._http:JSONEncode(envelope) or "",
-				Enum.HttpContentType.ApplicationJson,
-				false
-			)
-		else
-			return self._http:GetAsync(opts.Url)
-		end
-	end)
-
-	if not ok then
-		return false, "Request failed: " .. tostring(result)
-	end
-
-	-- Try to interpret response as a compressed envelope; fall back to raw text.
-	local decoded, wasEnvelope = self._safe(function()
-		local parsed = self._http:JSONDecode(result)
-		if type(parsed) == "table" and parsed.d ~= nil and parsed.c ~= nil then
-			return self:Decompress(parsed), true
-		end
-		return parsed, false
-	end)
-
-	if decoded == nil then
-		return true, result -- couldn't parse; hand back raw string
-	end
-	return true, decoded
+	self:_record(opts.context, results[2])
+	return opts.fallback
 end
 
-return NetworkTransformer
+------------------------------------------------------------------------
+-- Wrap: returns a new function that behaves like fn but never throws.
+-- Handy for wrapping user-supplied Callbacks passed into UI elements.
+------------------------------------------------------------------------
+function ErrorHandler:Wrap(fn, opts)
+	opts = opts or {}
+	local context = opts.context or "Wrapped callback"
+	return function(...)
+		local args = table.pack(...)
+		return self:Try(function()
+			return fn(table.unpack(args, 1, args.n))
+		end, { fallback = opts.fallback, context = context })
+	end
+end
+
+------------------------------------------------------------------------
+-- Validate: shallow schema check for decoded data (e.g. loaded configs).
+-- schema = {
+--     type = "table" | "string" | "number" | ...,
+--     required = {"Key1", "Key2"},        -- keys that must be present (table only)
+-- }
+-- Returns (value, true) if valid, or (fallback, false) if not.
+------------------------------------------------------------------------
+function ErrorHandler:Validate(value, schema, opts)
+	opts = opts or {}
+	schema = schema or {}
+	local context = opts.context or "Validate"
+
+	if schema.type and type(value) ~= schema.type then
+		self:_record(context, ("expected %s, got %s"):format(schema.type, type(value)))
+		return opts.fallback, false
+	end
+
+	if schema.type == "table" and schema.required then
+		for _, key in ipairs(schema.required) do
+			if value[key] == nil then
+				self:_record(context, "missing required field: " .. tostring(key))
+				return opts.fallback, false
+			end
+		end
+	end
+
+	return value, true
+end
+
+------------------------------------------------------------------------
+-- Combined helper: decode + validate in one safe step. Great for
+-- reading config files or remote payloads that feed into UI Flags.
+------------------------------------------------------------------------
+function ErrorHandler:SafeDecode(raw, decodeFn, schema, opts)
+	opts = opts or {}
+	local decoded = self:Try(function() return decodeFn(raw) end, {
+		fallback = opts.fallback,
+		context = (opts.context or "SafeDecode") .. ":decode",
+	})
+	if decoded == nil then
+		return opts.fallback, false
+	end
+	if schema then
+		return self:Validate(decoded, schema, {
+			fallback = opts.fallback,
+			context = (opts.context or "SafeDecode") .. ":validate",
+		})
+	end
+	return decoded, true
+end
+
+function ErrorHandler:GetStats()
+	return {
+		ErrorCount = self._errorCount,
+		RecentErrors = self._lastErrors,
+	}
+end
+
+function ErrorHandler:Reset()
+	self._errorCount = 0
+	self._lastErrors = {}
+end
+
+return ErrorHandler
