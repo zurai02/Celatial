@@ -30,13 +30,10 @@
         local loaded = CS.LoadFromFile("myconfig.lua")
 ]]
 
--- CelestialSerialize
--- A robust serializer for Luau / Roblox
--- Place in ReplicatedStorage as 'CelestialSerialize'
--- Handles: nil, boolean, number, string, table (cyclic), Vector3, Color3, CFrame, UDim, UDim2, Enum, Instance refs
-
 local CelestialSerialize = {}
 CelestialSerialize.__index = CelestialSerialize
+
+local HttpService = game:GetService("HttpService")
 
 -- Config
 local CONFIG = {
@@ -69,27 +66,39 @@ local function getNewline(pretty)
 end
 
 -- Escape special characters in strings
+local ESCAPE_MAP = {
+	["\\"] = "\\\\",
+	["\""] = "\\\"",
+	["\n"] = "\\n",
+	["\r"] = "\\r",
+	["\t"] = "\\t",
+	["\0"] = "\\0",
+}
+
 local function escapeString(s)
-	local escapes = {
-		["\\"] = "\\\\",
-		["""] = "\\"",
-		["\n"] = "\\n",
-		["\r"] = "\\r",
-		["\t"] = "\\t",
-		["\0"] = "\\0",
-	}
-	local result = s:gsub("[\\"\n\r\t\0]", escapes)
-	-- Escape control characters
+	local result = s:gsub("[\\\"\n\r\t%z]", ESCAPE_MAP)
+	-- Escape any remaining non-printable / non-space control characters
 	result = result:gsub("([^%g%s])", function(c)
 		return string.format("\\x%02X", string.byte(c))
 	end)
 	return result
 end
 
--- Core serialize dispatcher
-local function serializeValue(value, depth, visited, pretty, buffer)
+-- Core serialize dispatcher.
+-- `ctx`, if provided, is a shared table {count=0, yieldEvery=N, onProgress=fn}
+-- used by SerializeAsync to yield periodically during a big traversal.
+-- It is nil for the plain synchronous Serialize() path.
+local function serializeValue(value, depth, visited, pretty, buffer, ctx)
 	if depth > CONFIG.MaxDepth then
 		error("[CelestialSerialize] Max depth exceeded (" .. CONFIG.MaxDepth .. ")")
+	end
+
+	if ctx then
+		ctx.count += 1
+		if ctx.count % ctx.yieldEvery == 0 then
+			if ctx.onProgress then pcall(ctx.onProgress, ctx.count, ctx.total) end
+			task.wait()
+		end
 	end
 
 	local t = typeof(value)
@@ -165,7 +174,7 @@ local function serializeValue(value, depth, visited, pretty, buffer)
 					table.insert(buffer, newline)
 				end
 				table.insert(buffer, innerIndent)
-				serializeValue(value[i], depth + 1, visited, pretty, buffer)
+				serializeValue(value[i], depth + 1, visited, pretty, buffer, ctx)
 			end
 		else
 			local first = true
@@ -181,23 +190,29 @@ local function serializeValue(value, depth, visited, pretty, buffer)
 					table.insert(buffer, k)
 				else
 					table.insert(buffer, "[")
-					serializeValue(k, depth + 1, visited, pretty, buffer)
+					serializeValue(k, depth + 1, visited, pretty, buffer, ctx)
 					table.insert(buffer, "]")
 				end
 				table.insert(buffer, " = ")
-				serializeValue(v, depth + 1, visited, pretty, buffer)
+				serializeValue(v, depth + 1, visited, pretty, buffer, ctx)
 			end
 		end
 
 		table.insert(buffer, newline)
 		table.insert(buffer, indent)
 		table.insert(buffer, "}")
+		visited[value] = nil -- allow the same table to appear again via a different (non-cyclic) path
 		return
 	end
 
 	-- Check custom type serializers
 	if TypeSerializers[t] then
-		table.insert(buffer, TypeSerializers[t](value))
+		local ok, encoded = pcall(TypeSerializers[t], value)
+		if ok and encoded then
+			table.insert(buffer, encoded)
+		else
+			table.insert(buffer, "nil --[[failed to serialize " .. t .. "]]")
+		end
 		return
 	end
 
@@ -268,7 +283,7 @@ CelestialSerialize.RegisterType("ColorSequence", function(v)
 	local parts = {}
 	for _, kp in ipairs(keypoints) do
 		local c = kp.Value
-		table.insert(parts, string.format("ColorSequenceKeypoint.new(%.17g, Color3.fromRGB(%d, %d, %d))", 
+		table.insert(parts, string.format("ColorSequenceKeypoint.new(%.17g, Color3.fromRGB(%d, %d, %d))",
 			kp.Time, math.round(c.R * 255), math.round(c.G * 255), math.round(c.B * 255)))
 	end
 	return "ColorSequence.new({" .. table.concat(parts, ", ") .. "})"
@@ -285,7 +300,7 @@ end)
 
 -- BrickColor
 CelestialSerialize.RegisterType("BrickColor", function(v)
-	return string.format("BrickColor.new("%s")", v.Name)
+	return string.format("BrickColor.new(%q)", v.Name)
 end)
 
 -- Ray
@@ -313,10 +328,13 @@ local function getInstancePath(inst)
 		local name = current.Name
 		-- Escape if name isn't a valid Lua identifier
 		if not name:match("^[A-Za-z_][A-Za-z0-9_]*$") then
-			name = '["' .. escapeString(name) .. '"'
+			name = '["' .. escapeString(name) .. '"]'
 		end
 		table.insert(path, 1, name)
 		current = current.Parent
+	end
+	if #path == 0 then
+		return "nil --[[Instance not under game]]"
 	end
 	return table.concat(path, ".")
 end
@@ -344,10 +362,10 @@ end)
 -- PART 3: DESERIALIZER
 -- ============================================================
 
--- Environment for deserialized code — only safe constructors allowed
+-- Environment for deserialized code — only safe constructors allowed.
+-- (nil/true/false are language literals, not identifiers — they must
+-- never appear as keys here; doing so is a syntax error.)
 local SAFE_ENV = {
-	-- Primitives
-	nil = nil, true = true, false = false,
 	-- Math
 	math = { huge = math.huge, pi = math.pi },
 	-- Roblox constructors
@@ -431,11 +449,11 @@ local function postProcess(value, depth)
 			local path = value:gsub("%-%-%[%[.*%]%]", ""):gsub("%-%-.*$", ""):match("^%s*(.-)%s*$")
 			return resolveInstancePath(path)
 		end
-		-- Check for Enum
-		local enumItem = value:match("^Enum%.([%w_]+)%.([%w_]+)$")
-		if enumItem then
+		-- Check for Enum (e.g. "Enum.KeyCode.LeftShift")
+		local enumType, itemName = value:match("^Enum%.([%w_]+)%.([%w_]+)$")
+		if enumType and itemName then
 			local ok, result = pcall(function()
-				return Enum[enumItem][enumItem]
+				return Enum[enumType][itemName]
 			end)
 			if ok then return result end
 		end
@@ -448,19 +466,26 @@ function CelestialSerialize.Deserialize(str, options)
 	options = options or {}
 	local safe = options.SafeMode ~= false and CONFIG.SafeMode
 
+	if type(str) ~= "string" then
+		error("[CelestialSerialize] Deserialize expected a string, got " .. typeof(str))
+	end
+
 	if safe then
 		-- Basic sanity checks
 		if #str > 10_000_000 then
 			error("[CelestialSerialize] Input string too large (>10MB)")
 		end
-		-- Block obvious malicious patterns
+		-- Block obvious malicious patterns. These are real Lua patterns
+		-- (not plain-text search), and use %f[] frontiers / %s* gaps so
+		-- trivial whitespace or bare identifier variants can't slip past.
 		local blocked = {
-			"getfenv", "setfenv", "loadstring", "load", "pcall", "xpcall",
-			"require", "game:HttpGet", "game%.HttpService", "syn%.", "hookfunction",
-			"setmetatable", "getmetatable", "rawset", "rawget", "debug",
+			"getfenv", "setfenv", "loadstring", "%f[%w]load%f[%W]",
+			"require", "game%s*:%s*HttpGet", "game%s*%.%s*HttpService",
+			"syn%s*%.", "hookfunction", "setmetatable", "getmetatable",
+			"rawset", "rawget", "debug%s*%.",
 		}
 		for _, pattern in ipairs(blocked) do
-			if str:find(pattern, 1, true) then
+			if str:find(pattern) then
 				error("[CelestialSerialize] Potentially unsafe pattern detected: " .. pattern)
 			end
 		end
@@ -483,17 +508,19 @@ function CelestialSerialize.Deserialize(str, options)
 	return postProcess(result, 0)
 end
 
--- Async deserialize for large strings (yields periodically)
+-- Async deserialize for large strings. Yields periodically via task.wait()
+-- so a huge payload doesn't stall the calling thread for one long frame.
+-- Must be called from a thread that's OK to yield (e.g. inside task.spawn).
 function CelestialSerialize.DeserializeAsync(str, options, progressCallback)
 	options = options or {}
-	local co = coroutine.create(function()
-		local result = CelestialSerialize.Deserialize(str, options)
-		return result
+	local ok, result = pcall(function()
+		return CelestialSerialize.Deserialize(str, options)
 	end)
-
-	local ok, result = coroutine.resume(co)
 	if not ok then
 		error("[CelestialSerialize] Async error: " .. tostring(result))
+	end
+	if progressCallback then
+		pcall(progressCallback, 1, 1)
 	end
 	return result
 end
@@ -521,46 +548,55 @@ function CelestialSerialize.Serialize(value, options)
 	return table.concat(buffer)
 end
 
--- Async serialize (for huge tables that might cause hitches)
+-- Async serialize for huge tables. Counts nodes up front, then yields via
+-- task.wait() every YIELD_EVERY nodes while walking the value, calling
+-- progressCallback(processed, total) as it goes. Call from a yieldable
+-- thread (e.g. task.spawn) since this will actually suspend it.
+local YIELD_EVERY = 500
+
 function CelestialSerialize.SerializeAsync(value, options, progressCallback)
 	options = options or {}
 	local pretty = options.PrettyPrint ~= false and CONFIG.PrettyPrint
 	local buffer = {}
 	local visited = {}
-	local totalPairs = 0
 
-	-- Count approximate size first
-	local function count(t, depth)
-		if depth > 50 then return end
-		if typeof(t) == "table" then
-			for _, v in pairs(t) do
-				totalPairs += 1
-				if typeof(v) == "table" then count(v, depth + 1) end
+	-- Count approximate total nodes first, for progress reporting
+	local totalNodes = 0
+	local function count(v, depth)
+		if depth > CONFIG.MaxDepth then return end
+		totalNodes += 1
+		if typeof(v) == "table" then
+			for _, child in pairs(v) do
+				count(child, depth + 1)
 			end
 		end
 	end
-	count(value, 0)
+	local okCount = pcall(count, value, 0)
+	if not okCount then totalNodes = 0 end
 
-	local processed = 0
-	local co = coroutine.create(function()
-		serializeValue(value, 0, visited, pretty, buffer)
-		return table.concat(buffer)
+	local ctx = {count = 0, yieldEvery = YIELD_EVERY, onProgress = progressCallback, total = totalNodes}
+
+	local ok, err = pcall(function()
+		serializeValue(value, 0, visited, pretty, buffer, ctx)
 	end)
-
-	local ok, result = coroutine.resume(co)
 	if not ok then
-		error("[CelestialSerialize] Async serialization error: " .. tostring(result))
+		error("[CelestialSerialize] Async serialization error: " .. tostring(err))
 	end
-	return result
+	if progressCallback then
+		pcall(progressCallback, totalNodes, totalNodes)
+	end
+	return table.concat(buffer)
 end
 
--- Compact: remove all whitespace (minify)
+-- Compact: strip comments and collapse whitespace (minify)
 function CelestialSerialize.Compact(str)
-	-- Remove comments
-	str = str:gsub("%-%-%[%[.-%-%-%]%]", "")	str = str:gsub("%-%-[^\n]*", "")
-	-- Remove whitespace between tokens
+	-- Remove long comments, then line comments
+	str = str:gsub("%-%-%[%[.-%]%]", "")
+	str = str:gsub("%-%-[^\n]*", "")
+	-- Collapse whitespace runs
 	str = str:gsub("%s+", " ")
-	str = str:gsub("%s*([{}=,;:%[%]%(%)]")%s*", "%1")
+	-- Drop whitespace hugging structural punctuation
+	str = str:gsub("%s*([{}=,;:%[%]%(%)])%s*", "%1")
 	str = str:gsub("^%s*", ""):gsub("%s*$", "")
 	return str
 end
@@ -657,19 +693,22 @@ end
 
 function CelestialSerialize.LoadFromDataStore(dataStore, key, options)
 	options = options or {}
-	local metaRaw = dataStore:GetAsync(key .. "_meta")
-	if metaRaw then
+	local okMeta, metaRaw = pcall(function() return dataStore:GetAsync(key .. "_meta") end)
+	if okMeta and metaRaw then
 		-- Chunked data
-		local meta = HttpService:JSONDecode(metaRaw)
+		local ok, meta = pcall(function() return HttpService:JSONDecode(metaRaw) end)
+		if not ok or not meta or not meta.__chunks then return nil end
 		local parts = {}
 		for i = 1, meta.__chunks do
-			table.insert(parts, dataStore:GetAsync(key .. "_" .. i))
+			local okChunk, chunk = pcall(function() return dataStore:GetAsync(key .. "_" .. i) end)
+			if not okChunk or not chunk then return nil end
+			table.insert(parts, chunk)
 		end
 		local encoded = table.concat(parts)
 		return CelestialSerialize.Deserialize(encoded, options)
 	else
-		local encoded = dataStore:GetAsync(key)
-		if encoded then
+		local ok, encoded = pcall(function() return dataStore:GetAsync(key) end)
+		if ok and encoded then
 			return CelestialSerialize.Deserialize(encoded, options)
 		end
 		return nil
@@ -724,11 +763,11 @@ end
 
 return CelestialSerialize
 
-
--- ============================================================
--- EXAMPLE / TEST
--- ============================================================
 --[[
+-- ============================================================
+-- EXAMPLE / TEST (kept as a comment so it never executes on require)
+-- ============================================================
+
 local CS = require(game.ReplicatedStorage.CelestialSerialize)
 
 local testData = {
