@@ -1,8 +1,49 @@
+--[[
+    CelestialConfig v3.0.0
+    Shared utility layer for Celestial UI Library
+
+    Load via:
+        local C = loadstring(game:HttpGet("YOUR_RAW_URL"))()
+
+    Features:
+    - 50+ cached Roblox services (with cloneref support)
+    - Tween presets + auto-cancel registry
+    - Maid pattern for cleanup
+    - Table / Math / Color utilities
+    - File system wrappers (executor env)
+    - Instance factory (C.N.Make, C.N.Corner, etc.)
+    - 5 built-in themes (Nebula, Aurora, Dusk, Void, Frost)
+    - Player tracking with health/position history
+    - Input, Camera, Raycast helpers
+    - Drawing + ESP system
+    - Notification system
+    - Serializer integration (CelestialSerialize)
+
+    Serializer URL:
+    https://raw.githubusercontent.com/zurai02/Celatial/main/CelestialSerialize.lua
+]]
+
 --!optimize 2
 --!strict
 --!native
 
+--[[
+    CelestialConfig v3.0.0
+    Shared utility layer for Celestial UI Library
+    Load via: loadstring(game:HttpGet("YOUR_RAW_URL"))()
+
+    Integrates with CelestialSerialize for config persistence.
+    Serializer URL: https://raw.githubusercontent.com/zurai02/Celatial/main/CelestialSerialize.lua
+]]
+
 local C = {}
+
+------------------------------------------------------------------------
+-- Environment Detection
+------------------------------------------------------------------------
+C.IsClient = game:GetService("Players").LocalPlayer ~= nil
+C.IsServer = not C.IsClient
+C.IsStudio = game:GetService("RunService"):IsStudio()
 
 ------------------------------------------------------------------------
 -- Services (cached with cloneref support)
@@ -13,38 +54,38 @@ local function gs(n)
 end
 
 C.SV = {
-	AdService=gs("AdService"),AnalyticsService=gs("AnalyticsService"),
-	AssetService=gs("AssetService"),BadgeService=gs("BadgeService"),
-	ChangeHistoryService=gs("ChangeHistoryService"),Chat=gs("Chat"),
-	CollectionService=gs("CollectionService"),ContentProvider=gs("ContentProvider"),
-	ContextActionService=gs("ContextActionService"),CookiesService=gs("CookiesService"),
-	CoreGui=gs("CoreGui"),Debris=gs("Debris"),DebuggerManager=gs("DebuggerManager"),
-	DraftsService=gs("DraftsService"),DraggerService=gs("DraggerService"),
-	FilteredSelection=gs("FilteredSelection"),FriendService=gs("FriendService"),
-	GamePassService=gs("GamePassService"),GamepadService=gs("GamepadService"),
-	Geometry=gs("Geometry"),GroupService=gs("GroupService"),GuiService=gs("GuiService"),
-	HSRDataContentProvider=gs("HSRDataContentProvider"),HapticService=gs("HapticService"),
-	HttpRbxApiService=gs("HttpRbxApiService"),HttpService=gs("HttpService"),
-	InsertService=gs("InsertService"),JointsService=gs("JointsService"),
-	LanguageService=gs("LanguageService"),Lighting=gs("Lighting"),
-	LocalizationService=gs("LocalizationService"),LogService=gs("LogService"),
-	MarketplaceService=gs("MarketplaceService"),MemStorageService=gs("MemStorageService"),
-	MeshContentProvider=gs("MeshContentProvider"),NotificationService=gs("NotificationService"),
-	PermissionsService=gs("PermissionsService"),PhysicsService=gs("PhysicsService"),
-	Players=gs("Players"),PluginDebugService=gs("PluginDebugService"),
-	PluginGuiService=gs("PluginGuiService"),PointsService=gs("PointsService"),
-	PolicyService=gs("PolicyService"),ProcessInstancePhysicsService=gs("ProcessInstancePhysicsService"),
-	ReplicatedFirst=gs("ReplicatedFirst"),ReplicatedStorage=gs("ReplicatedStorage"),
-	RunService=gs("RunService"),ScriptContext=gs("ScriptContext"),
-	Selection=gs("Selection"),ServerScriptService=gs("ServerScriptService"),
-	ServerStorage=gs("ServerStorage"),SolidModelContentProvider=gs("SolidModelContentProvider"),
-	SoundService=gs("SoundService"),StarterGui=gs("StarterGui"),StarterPack=gs("StarterPack"),
-	StarterPlayer=gs("StarterPlayer"),Stats=gs("Stats"),StudioService=gs("StudioService"),
-	Teams=gs("Teams"),TeleportService=gs("TeleportService"),TestService=gs("TestService"),
-	TextService=gs("TextService"),TouchInputService=gs("TouchInputService"),
-	TweenService=gs("TweenService"),UserInputService=gs("UserInputService"),
-	VRService=gs("VRService"),VirtualInputManager=gs("VirtualInputManager"),
-	Visit=gs("Visit"),Workspace=gs("Workspace"),
+	AdService=gs("AdService"), AnalyticsService=gs("AnalyticsService"),
+	AssetService=gs("AssetService"), BadgeService=gs("BadgeService"),
+	ChangeHistoryService=gs("ChangeHistoryService"), Chat=gs("Chat"),
+	CollectionService=gs("CollectionService"), ContentProvider=gs("ContentProvider"),
+	ContextActionService=gs("ContextActionService"), CoreGui=gs("CoreGui"),
+	Debris=gs("Debris"), DebuggerManager=gs("DebuggerManager"),
+	DraftsService=gs("DraftsService"), DraggerService=gs("DraggerService"),
+	FilteredSelection=gs("FilteredSelection"), FriendService=gs("FriendService"),
+	GamePassService=gs("GamePassService"), GamepadService=gs("GamepadService"),
+	Geometry=gs("Geometry"), GroupService=gs("GroupService"), GuiService=gs("GuiService"),
+	HSRDataContentProvider=gs("HSRDataContentProvider"), HapticService=gs("HapticService"),
+	HttpRbxApiService=gs("HttpRbxApiService"), HttpService=gs("HttpService"),
+	InsertService=gs("InsertService"), JointsService=gs("JointsService"),
+	LanguageService=gs("LanguageService"), Lighting=gs("Lighting"),
+	LocalizationService=gs("LocalizationService"), LogService=gs("LogService"),
+	MarketplaceService=gs("MarketplaceService"), MemStorageService=gs("MemStorageService"),
+	MeshContentProvider=gs("MeshContentProvider"), NotificationService=gs("NotificationService"),
+	PermissionsService=gs("PermissionsService"), PhysicsService=gs("PhysicsService"),
+	Players=gs("Players"), PluginDebugService=gs("PluginDebugService"),
+	PluginGuiService=gs("PluginGuiService"), PointsService=gs("PointsService"),
+	PolicyService=gs("PolicyService"), ProcessInstancePhysicsService=gs("ProcessInstancePhysicsService"),
+	ReplicatedFirst=gs("ReplicatedFirst"), ReplicatedStorage=gs("ReplicatedStorage"),
+	RunService=gs("RunService"), ScriptContext=gs("ScriptContext"),
+	Selection=gs("Selection"), ServerScriptService=gs("ServerScriptService"),
+	ServerStorage=gs("ServerStorage"), SolidModelContentProvider=gs("SolidModelContentProvider"),
+	SoundService=gs("SoundService"), StarterGui=gs("StarterGui"), StarterPack=gs("StarterPack"),
+	StarterPlayer=gs("StarterPlayer"), Stats=gs("Stats"), StudioService=gs("StudioService"),
+	Teams=gs("Teams"), TeleportService=gs("TeleportService"), TestService=gs("TestService"),
+	TextService=gs("TextService"), TouchInputService=gs("TouchInputService"),
+	TweenService=gs("TweenService"), UserInputService=gs("UserInputService"),
+	VRService=gs("VRService"), VirtualInputManager=gs("VirtualInputManager"),
+	Visit=gs("Visit"), Workspace=gs("Workspace"),
 }
 
 -- Shorthand
@@ -71,12 +112,12 @@ C.TM  = C.SV.Teams
 -- Timing
 ------------------------------------------------------------------------
 C.Wait   = task.wait
-C.Defer  = task.defer or function(f,...)task.delay(0,f,...)end
+C.Defer  = task.defer or function(f, ...) task.delay(0, f, ...) end
 C.Spawn  = task.spawn
 C.Delay  = task.delay
 
 ------------------------------------------------------------------------
--- Tween Presets + Registry
+-- Tween Presets + Registry (auto-cancel old tweens on same instance)
 ------------------------------------------------------------------------
 C.TI = TweenInfo
 C.TW = {
@@ -92,7 +133,6 @@ C.TW = {
 	Snap    = C.TI.new(0.05, Enum.EasingStyle.Quad,   Enum.EasingDirection.Out),
 }
 
--- Shorthand aliases (avoid shadowing C.TS / C.TM)
 C.TwF  = C.TW.Fast
 C.TwM  = C.TW.Med
 C.TwS  = C.TW.Slow
@@ -106,10 +146,10 @@ C.TwSN = C.TW.Snap
 
 C._tweens = {}
 function C.Tween(inst, info, goals)
-	if not inst or not inst.Parent then return nil end
+	if not inst then return nil end
 	local old = C._tweens[inst]
 	if old then pcall(function() old:Cancel() end) end
-	local t = C.SV.TweenService:Create(inst, info, goals)
+	local t = C.TS:Create(inst, info, goals)
 	C._tweens[inst] = t
 	t:Play()
 	local c = t.Completed:Connect(function()
@@ -131,21 +171,28 @@ function C.Safe(fn, ...)
 end
 
 ------------------------------------------------------------------------
--- Maid
+-- Maid (cleanup utility)
 ------------------------------------------------------------------------
 function C.Maid()
-	local m = {_j={}}
-	function m:Give(j) if j then table.insert(self._j, j) end return j end
+	local m = {_j = {}}
+	function m:Give(j)
+		if j then table.insert(self._j, j) end
+		return j
+	end
 	function m:Clean()
 		for _, j in ipairs(self._j) do
 			if typeof(j) == "RBXScriptConnection" then j:Disconnect()
 			elseif typeof(j) == "Instance" then pcall(function() j:Destroy() end)
-			elseif type(j) == "function" then pcall(j) end
+			elseif type(j) == "function" then pcall(j)
+			elseif type(j) == "table" and j.Destroy then pcall(function() j:Destroy() end)
+			end
 		end
 		for i = #self._j, 1, -1 do self._j[i] = nil end
 	end
+	function m:Destroy() self:Clean() end
 	return m
 end
+
 
 ------------------------------------------------------------------------
 -- Table Utils
@@ -154,6 +201,15 @@ C.Tbl = {}
 function C.Tbl.Find(t, v) for i, x in ipairs(t) do if x == v then return i end end return nil end
 function C.Tbl.Count(t) local n = 0 for _ in pairs(t) do n += 1 end return n end
 function C.Tbl.Copy(t) if type(t) ~= "table" then return t end local c = {} for k, v in pairs(t) do c[k] = v end return c end
+function C.Tbl.DeepCopy(t, seen)
+	if type(t) ~= "table" then return t end
+	seen = seen or {}
+	if seen[t] then return seen[t] end
+	local c = {}
+	seen[t] = c
+	for k, v in pairs(t) do c[C.Tbl.DeepCopy(k, seen)] = C.Tbl.DeepCopy(v, seen) end
+	return c
+end
 function C.Tbl.Merge(a, b) local c = C.Tbl.Copy(a) if b then for k, v in pairs(b) do c[k] = v end end return c end
 function C.Tbl.Filter(t, fn) local r = {} for i, v in ipairs(t) do if fn(v, i) then table.insert(r, v) end end return r end
 function C.Tbl.Map(t, fn) local r = {} for i, v in ipairs(t) do r[i] = fn(v, i) end return r end
@@ -162,6 +218,12 @@ function C.Tbl.Values(t) local r = {} for _, v in pairs(t) do table.insert(r, v)
 function C.Tbl.Reverse(t) local r = {} for i = #t, 1, -1 do table.insert(r, t[i]) end return r end
 function C.Tbl.Contains(t, v) for _, x in pairs(t) do if x == v then return true end end return false end
 function C.Tbl.Flatten(t) local r = {} for _, v in ipairs(t) do if type(v) == "table" then for _, x in ipairs(v) do table.insert(r, x) end else table.insert(r, v) end end return r end
+function C.Tbl.ShallowEqual(a, b)
+	if type(a) ~= "table" or type(b) ~= "table" then return a == b end
+	for k, v in pairs(a) do if b[k] ~= v then return false end end
+	for k, v in pairs(b) do if a[k] ~= v then return false end end
+	return true
+end
 
 ------------------------------------------------------------------------
 -- Math Utils
@@ -176,6 +238,7 @@ function C.Mth.Round(x, dec)
 	return math.floor(x * m + 0.5) / m
 end
 function C.Mth.Snap(x, step, min)
+	min = min or 0
 	local raw = math.round((x - min) / step) * step + min
 	local s = tostring(step)
 	local d = s:find("%.")
@@ -187,6 +250,8 @@ function C.Mth.Dist2D(a, b) return math.sqrt((a.X - b.X)^2 + (a.Y - b.Y)^2) end
 function C.Mth.RandomRange(a, b) return math.random() * (b - a) + a end
 function C.Mth.Sign(x) return x > 0 and 1 or x < 0 and -1 or 0 end
 function C.Mth.Approach(a, b, amt) return a < b and math.min(a + amt, b) or math.max(a - amt, b) end
+function C.Mth.Floor(x, dec) local m = 10^(dec or 0) return math.floor(x * m) / m end
+function C.Mth.Ceil(x, dec) local m = 10^(dec or 0) return math.ceil(x * m) / m end
 
 ------------------------------------------------------------------------
 -- Color Utils
@@ -212,7 +277,7 @@ function C.Col.WithA(c, a)
 end
 
 ------------------------------------------------------------------------
--- File System
+-- File System (executor environment)
 ------------------------------------------------------------------------
 C.File = {}
 function C.File.Exists(p) return isfile and isfile(p) end
@@ -225,6 +290,81 @@ function C.File.Ensure(p) C.File.MakeFolder(p) end
 function C.File.Delete(p) if delfile and C.File.Exists(p) then delfile(p) end end
 function C.File.DeleteFolder(p) if delfolder and C.File.IsFolder(p) then delfolder(p) end end
 function C.File.Append(p, d) if appendfile then appendfile(p, d) end end
+function C.File.LoadJSON(p)
+	if not C.File.Exists(p) then return nil end
+	local raw = C.File.Read(p)
+	if not raw then return nil end
+	local ok, result = pcall(function() return C.HS:JSONDecode(raw) end)
+	return ok and result or nil
+end
+function C.File.SaveJSON(p, data)
+	local ok, enc = pcall(function() return C.HS:JSONEncode(data) end)
+	if ok then C.File.Write(p, enc) end
+end
+
+------------------------------------------------------------------------
+-- Serializer Integration (CelestialSerialize)
+------------------------------------------------------------------------
+C.Serializer = nil
+C.SerializerURL = "https://raw.githubusercontent.com/zurai02/Celatial/main/CelestialSerialize.lua"
+
+function C.LoadSerializer(url)
+	url = url or C.SerializerURL
+	if C.Serializer then return C.Serializer end
+	local ok, result = pcall(function()
+		return loadstring(game:HttpGet(url))()
+	end)
+	if ok and result then
+		C.Serializer = result
+		return result
+	else
+		warn("[Celestial] Serializer load failed: " .. tostring(result))
+		return nil
+	end
+end
+
+function C.Serialize(data, opts)
+	if C.Serializer then return C.Serializer.Serialize(data, opts) end
+	-- Fallback to JSON
+	local ok, result = pcall(function() return C.HS:JSONEncode(data) end)
+	if ok then return result end
+	warn("[Celestial] Serialize failed: no serializer loaded")
+	return nil
+end
+
+function C.Deserialize(str, opts)
+	if C.Serializer then return C.Serializer.Deserialize(str, opts) end
+	-- Fallback to JSON
+	local ok, result = pcall(function() return C.HS:JSONDecode(str) end)
+	if ok then return result end
+	warn("[Celestial] Deserialize failed: no serializer loaded")
+	return nil
+end
+
+function C.SaveConfig(path, data)
+	C.File.Ensure(path:match("^(.*)/") or "")
+	if C.Serializer then
+		local enc = C.Serializer.Serialize(data, {PrettyPrint = true})
+		C.File.Write(path, enc)
+	else
+		C.File.SaveJSON(path, data)
+	end
+end
+
+function C.LoadConfig(path)
+	if not C.File.Exists(path) then return nil end
+	local raw = C.File.Read(path)
+	if not raw then return nil end
+	if C.Serializer then
+		return C.Serializer.Deserialize(raw)
+	else
+		return C.HS:JSONDecode(raw)
+	end
+end
+
+-- Auto-attempt to load serializer
+C.Safe(C.LoadSerializer)
+
 
 ------------------------------------------------------------------------
 -- Instance Factory
@@ -294,6 +434,25 @@ function C.N.Shadow(p, th)
 end
 function C.N.Glow(p, th)
 	return C.N.Image({Name = "Glow", Size = UDim2.new(1, 0, 0, 220), Position = UDim2.new(0, 0, 0, -110), BackgroundTransparency = 1, Image = "rbxassetid://6014261993", ImageColor3 = th.Glow, ImageTransparency = 0.88, ScaleType = Enum.ScaleType.Slice, SliceCenter = Rect.new(49, 49, 450, 450), ZIndex = 0}, p)
+end
+function C.N.Tooltip(parent, text)
+	if not text or text == "" then return end
+	local sg = C.N.Screen({Name = "CelestialTooltip", ResetOnSpawn = false, IgnoreGuiInset = true, ZIndexBehavior = Enum.ZIndexBehavior.Sibling, DisplayOrder = 999})
+	pcall(function() sg.Parent = C.CG end)
+	local bg = C.N.Frame({Name = "Tip", BackgroundColor3 = Color3.fromRGB(20, 18, 28), BackgroundTransparency = 0.05, Size = UDim2.new(0, 0, 0, 26), Visible = false, ZIndex = 500}, sg)
+	C.N.Corner(6, bg)
+	C.N.Stroke(Color3.fromRGB(255, 255, 255), 1, 0.85, bg)
+	local lbl = C.N.Label({Size = UDim2.new(1, -16, 1, 0), Position = UDim2.new(0, 8, 0, 0), BackgroundTransparency = 1, Text = text, TextColor3 = Color3.fromRGB(235, 235, 245), Font = Enum.Font.Gotham, TextSize = 11, ZIndex = 501}, bg)
+
+	parent.MouseEnter:Connect(function()
+		local w = C.TXS:GetTextSize(text, 11, Enum.Font.Gotham, Vector2.new(400, 20)).X + 16
+		bg.Size = UDim2.new(0, w, 0, 26)
+		bg.Visible = true
+	end)
+	parent.MouseLeave:Connect(function() bg.Visible = false end)
+	parent.MouseMoved:Connect(function(x, y)
+		if bg.Visible then bg.Position = UDim2.new(0, x + 16, 0, y + 16) end
+	end)
 end
 
 ------------------------------------------------------------------------
@@ -366,21 +525,22 @@ function C.Theme(n) return C.Th[n] or C.ActiveTheme end
 function C.SetTheme(n) local t = C.Th[n] if t then C.ActiveTheme = t end return t end
 
 ------------------------------------------------------------------------
--- Flags
+-- Flags (global state storage)
 ------------------------------------------------------------------------
 C.Flags = {}
 function C.Flag(n, v) if v ~= nil then C.Flags[n] = v end return C.Flags[n] end
 function C.GetFlag(n) return C.Flags[n] end
 function C.ClearFlags() C.Flags = {} end
 
+
 ------------------------------------------------------------------------
--- Player Tracking
+-- Player Tracking (client-only; safe on server)
 ------------------------------------------------------------------------
 C.PD = {}
 C.PC = {}
 
 function C.Track(plr)
-	if C.PD[plr.UserId] then return end
+	if not plr or C.PD[plr.UserId] then return end
 	local d = {
 		UserId = plr.UserId, Name = plr.Name, DisplayName = plr.DisplayName,
 		AccountAge = plr.AccountAge, MembershipType = tostring(plr.MembershipType),
@@ -431,7 +591,7 @@ function C.Track(plr)
 		end
 	end
 
-	if plr.Character then onChar(plr.Character) end
+	if plr.Character then task.defer(onChar, plr.Character) end
 	table.insert(d._persistent, plr.CharacterAdded:Connect(onChar))
 	table.insert(d._persistent, plr.CharacterRemoving:Connect(function()
 		d.IsAlive = false; d.Character = nil; d.RootPart = nil; d.Humanoid = nil
@@ -475,57 +635,73 @@ function C.InitTrack()
 end
 
 ------------------------------------------------------------------------
--- Input
+-- Input (client-only)
 ------------------------------------------------------------------------
 C.Inp = {Keys = {}, JustPressed = {}, MousePos = Vector2.zero}
-if C.PS.LocalPlayer then
-	local m = C.PS.LocalPlayer:GetMouse()
-	C.Inp.Mouse = m
-	m.Move:Connect(function() C.Inp.MousePos = Vector2.new(m.X, m.Y) end)
+
+if C.IsClient then
+	C.RUN.InputBegan:Connect(function(i)
+		if i.UserInputType == Enum.UserInputType.Keyboard then
+			C.Inp.Keys[i.KeyCode] = true
+			C.Inp.JustPressed[i.KeyCode] = tick()
+		end
+	end)
+	C.RUN.InputEnded:Connect(function(i)
+		if i.UserInputType == Enum.UserInputType.Keyboard then
+			C.Inp.Keys[i.KeyCode] = false
+		end
+	end)
+	C.RUN.RenderStepped:Connect(function()
+		C.Inp.MousePos = C.UIS:GetMouseLocation()
+	end)
 end
 
-local _inputFrame = 0
-C.RUN.RenderStepped:Connect(function()
-	_inputFrame += 1
-end)
-
-C.RUN.InputBegan:Connect(function(i)
-	if i.UserInputType == Enum.UserInputType.Keyboard then
-		C.Inp.Keys[i.KeyCode] = true
-		C.Inp.JustPressed[i.KeyCode] = _inputFrame
-	end
-end)
-C.RUN.InputEnded:Connect(function(i)
-	if i.UserInputType == Enum.UserInputType.Keyboard then
-		C.Inp.Keys[i.KeyCode] = false
-	end
-end)
 function C.Inp.Down(k) return C.Inp.Keys[k] == true end
-function C.Inp.Pressed(k) return C.Inp.JustPressed[k] == _inputFrame end
+function C.Inp.Pressed(k)
+	local t = C.Inp.JustPressed[k]
+	return t ~= nil and (tick() - t) < 0.05
+end
 
 ------------------------------------------------------------------------
--- Camera
+-- Camera (client-only)
 ------------------------------------------------------------------------
 C.Cam = {Instance = C.WS.CurrentCamera}
-function C.Cam.Pos() return C.Cam.Instance.CFrame.Position end
-function C.Cam.Look() return C.Cam.Instance.CFrame.LookVector end
-function C.Cam.CF() return C.Cam.Instance.CFrame end
-function C.Cam.W2S(pos) local s, v = C.Cam.Instance:WorldToViewportPoint(pos) return Vector2.new(s.X, s.Y), v end
-function C.Cam.FOV() return C.Cam.Instance.FieldOfView end
-C.WS:GetPropertyChangedSignal("CurrentCamera"):Connect(function() C.Cam.Instance = C.WS.CurrentCamera end)
+
+if C.IsClient then
+	function C.Cam.Pos() local c = C.Cam.Instance return c and c.CFrame.Position or Vector3.zero end
+	function C.Cam.Look() local c = C.Cam.Instance return c and c.CFrame.LookVector or Vector3.zero end
+	function C.Cam.CF() local c = C.Cam.Instance return c and c.CFrame or CFrame.new() end
+	function C.Cam.W2S(pos) 
+		local c = C.Cam.Instance 
+		if not c then return Vector2.zero, false end
+		local s, v = c:WorldToViewportPoint(pos) 
+		return Vector2.new(s.X, s.Y), v 
+	end
+	function C.Cam.FOV() local c = C.Cam.Instance return c and c.FieldOfView or 70 end
+	C.WS:GetPropertyChangedSignal("CurrentCamera"):Connect(function() 
+		C.Cam.Instance = C.WS.CurrentCamera 
+	end)
+else
+	function C.Cam.Pos() return Vector3.zero end
+	function C.Cam.Look() return Vector3.zero end
+	function C.Cam.CF() return CFrame.new() end
+	function C.Cam.W2S(pos) return Vector2.zero, false end
+	function C.Cam.FOV() return 70 end
+end
 
 ------------------------------------------------------------------------
 -- Raycast
 ------------------------------------------------------------------------
 function C.Ray(o, d, params) return C.WS:Raycast(o, d, params) end
 function C.RayToPlayer(targetUid, maxDist)
+	if not C.IsClient then return false end
 	local me = C.PS.LocalPlayer
 	if not me or not me.Character then return false end
 	local myRoot = me.Character:FindFirstChild("HumanoidRootPart")
 	local t = C.PD[targetUid]
 	if not myRoot or not t or not t.RootPart then return false end
 	local params = RaycastParams.new()
-	params.FilterDescendantsInstances = {me.Character}
+	params.FilterDescendantsInstances = {me.Character, t.Character}
 	params.FilterType = Enum.RaycastFilterType.Blacklist
 	local r = C.WS:Raycast(myRoot.Position, (t.RootPart.Position - myRoot.Position).Unit * (maxDist or 500), params)
 	if r then
@@ -535,18 +711,21 @@ function C.RayToPlayer(targetUid, maxDist)
 	return false, nil
 end
 function C.RayFromMouse(maxDist)
+	if not C.IsClient then return nil end
 	local cam = C.Cam.Instance
-	local mouse = C.PS.LocalPlayer and C.PS.LocalPlayer:GetMouse()
-	if not mouse then return nil end
-	local ray = cam:ViewportPointToRay(mouse.X, mouse.Y)
+	if not cam then return nil end
+	local mousePos = C.UIS:GetMouseLocation()
+	local ray = cam:ViewportPointToRay(mousePos.X, mousePos.Y)
 	return C.WS:Raycast(ray.Origin, ray.Direction * (maxDist or 500))
 end
 
+
 ------------------------------------------------------------------------
--- Drawing
+-- Drawing (client-only)
 ------------------------------------------------------------------------
 C.Drw = {}
 function C.Drw.New(class, props)
+	if not Drawing then return nil end
 	local d = Drawing.new(class)
 	for k, v in pairs(props or {}) do pcall(function() d[k] = v end) end
 	return d
@@ -565,16 +744,18 @@ function C.Drw.Box(pos, sz, c, th, vis, fill)
 end
 
 ------------------------------------------------------------------------
--- ESP
+-- ESP (client-only)
 ------------------------------------------------------------------------
-C.ESP = {Objects = {}}
+C.ESP = {Objects = {}, Enabled = true}
 function C.ESP.Box(plr, color)
-	if not plr or not plr.Character then return end
+	if not C.IsClient or not plr or not plr.Character then return nil end
 	local r = plr.Character:FindFirstChild("HumanoidRootPart")
-	if not r then return end
+	if not r then return nil end
 	C.ESP.Remove(plr.UserId)
 	local b = C.Drw.New("Square", {Visible = false, Thickness = 1, Color = color or Color3.new(1, 1, 1), Filled = false, Transparency = 1})
-	C.ESP.Objects[plr.UserId] = {Box = b, Player = plr}
+	if b then
+		C.ESP.Objects[plr.UserId] = {Box = b, Player = plr, Color = color or Color3.new(1, 1, 1)}
+	end
 	return b
 end
 function C.ESP.Remove(uid)
@@ -591,9 +772,10 @@ function C.ESP.Clear()
 	C.ESP.Objects = {}
 end
 function C.ESP.Update()
+	if not C.ESP.Enabled then return end
 	for uid, o in pairs(C.ESP.Objects) do
 		local d = C.PD[uid]
-		if d and d.RootPart and d.IsAlive then
+		if d and d.RootPart and d.IsAlive and o.Box then
 			local pos, onScreen = C.Cam.W2S(d.RootPart.Position)
 			if onScreen then
 				local dist = (C.Cam.Pos() - d.RootPart.Position).Magnitude
@@ -601,13 +783,17 @@ function C.ESP.Update()
 				o.Box.Visible = true
 				o.Box.Position = pos - Vector2.new(scale / 2, scale * 1.1)
 				o.Box.Size = Vector2.new(scale, scale * 2.2)
+				if o.Color then o.Box.Color = o.Color end
 			else
 				o.Box.Visible = false
 			end
-		else
+		elseif o.Box then
 			o.Box.Visible = false
 		end
 	end
+end
+if C.IsClient then
+	C.RUN.RenderStepped:Connect(C.ESP.Update)
 end
 
 ------------------------------------------------------------------------
@@ -628,7 +814,7 @@ end
 function C.Notify(o)
 	o = type(o) == "table" and o or {}
 	C.EnsureNotify()
-	if not C.NL then return end
+	if not C.NL then return nil end
 	local th = C.Theme(o.Theme)
 	local dur = tonumber(o.Duration) or 4
 	local nt = o.Type or "info"
@@ -669,6 +855,9 @@ function C.Notify(o)
 	C.Delay(dur, dismiss)
 	return {Destroy = dismiss}
 end
+function C.Toast(text, ntype, duration)
+	C.Notify({Title = text, Type = ntype or "info", Duration = duration or 2.5})
+end
 
 ------------------------------------------------------------------------
 -- Constants
@@ -678,7 +867,6 @@ C.NAME        = "Celestial"
 C.FOLDER_ROOT = "Celestial"
 C.FOLDER_CFG  = C.FOLDER_ROOT .. "/Configs"
 C.CFG_EXT     = ".cltl"
-C.IS_STUDIO   = C.RUN:IsStudio()
 
 ------------------------------------------------------------------------
 -- Auto-Init
