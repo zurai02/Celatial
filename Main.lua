@@ -1,40 +1,35 @@
---[[
-    Celestial UI Library v3.0.0
-    Integrated Edition
-
-    External dependencies (auto-loaded via game:HttpGet):
-    - https://raw.githubusercontent.com/zurai02/Celatial/main/C.lua
-    - https://raw.githubusercontent.com/zurai02/Celatial/main/CelestialSerialize.lua
-    - https://raw.githubusercontent.com/zurai02/Celatial/main/NetworkTransformer.lua
-    - https://raw.githubusercontent.com/zurai02/Celatial/main/ErrorHandler.lua
-
-    Exposed on Celestial table:
-    - Celestial.Serializer        -> CelestialSerialize module
-    - Celestial.NetworkTransformer -> NetworkTransformer module  
-    - Celestial.ErrorHandler      -> ErrorHandler module
-    - Celestial._errorHandler     -> ErrorHandler instance (with Notify integration)
-    - Celestial._networkTransformer -> NetworkTransformer instance (ready for requests)
-]]
-
 --!optimize 2
 --!strict
 --!native
 
 --[[
-    Celestial UI Library v3.0.0
-    Integrated Edition with NetworkTransformer, ErrorHandler, CelestialSerialize
+    Celestial UI Library v3.0.9
+    Fixed & Serializer-Integrated Edition
 
-    External loads:
-    C.lua                      -> Config
-    CelestialSerialize.lua     -> Serializer
-    NetworkTransformer.lua     -> NetworkTransformer
-    ErrorHandler.lua           -> ErrorHandler
+    Loads shared utils from: https://raw.githubusercontent.com/zurai02/Celatial/main/C.lua
+    Serializer from: https://raw.githubusercontent.com/zurai02/Celatial/main/CelestialSerialize.lua
 ]]
 
 ------------------------------------------------------------------------
 -- Load Shared Config
 ------------------------------------------------------------------------
-local Config = loadstring(game:HttpGet("https://raw.githubusercontent.com/zurai02/Celatial/main/C.lua"))()
+-- IMPORTANT: this fetch used to be unprotected (no pcall). Any hiccup on
+-- the very first network call — GitHub rate-limiting, a brief outage, a
+-- slow executor HTTP client — threw an uncaught error right here and the
+-- whole script died silently before a single frame was ever drawn. That
+-- is the most likely reason nothing appeared. Wrapping it in pcall lets
+-- us fall through to the local fallback config below instead of crashing.
+local Config
+do
+	local ok, result = pcall(function()
+		return loadstring(game:HttpGet("https://raw.githubusercontent.com/zurai02/Celatial/main/C.lua"))()
+	end)
+	if ok then
+		Config = result
+	else
+		warn("[Celestial] Failed to fetch C.lua (" .. tostring(result) .. "). Using minimal fallback.")
+	end
+end
 
 -- Fallback if Config fails to load
 if not Config or not Config.SV then
@@ -82,12 +77,12 @@ if not Config or not Config.SV then
 			Gradient = function(r, kp, tp, p) return makef("UIGradient", {Rotation = r or 0, Color = kp, Transparency = tp}, p) end,
 		},
 		File = {MakeFolder = function(p) if makefolder and not (isfolder and isfolder(p)) then pcall(makefolder, p) end end},
-		Th = {},
+		Th = {}, -- Will use built-in fallback below
 	}
 end
 
 ------------------------------------------------------------------------
--- Load Serializer
+-- Load Serializer (optional but recommended)
 ------------------------------------------------------------------------
 local Serializer = nil
 local function loadSerializer()
@@ -99,43 +94,40 @@ local function loadSerializer()
 		Serializer = result
 		return true
 	end
-	warn("[Celestial] Serializer not available. Config save/load will use JSON.")
+	warn("[Celestial] Serializer not available. Config save/load will use JSON (Color3/Vector3/Enum will NOT persist correctly).")
 	return false
 end
 loadSerializer()
 
 ------------------------------------------------------------------------
--- Load NetworkTransformer
+-- Load Middleware: NetworkTransformer & ErrorHandler (optional but recommended)
 ------------------------------------------------------------------------
-local NetworkTransformer = nil
+local NetworkTransformerModule = nil
 local function loadNetworkTransformer()
-	if NetworkTransformer then return true end
+	if NetworkTransformerModule then return true end
 	local ok, result = pcall(function()
 		return loadstring(game:HttpGet("https://raw.githubusercontent.com/zurai02/Celatial/main/NetworkTransformer.lua"))()
 	end)
 	if ok and result then
-		NetworkTransformer = result
+		NetworkTransformerModule = result
 		return true
 	end
-	warn("[Celestial] NetworkTransformer failed to load. Network compression unavailable.")
+	warn("[Celestial] NetworkTransformer middleware not available. Network calls will be uncompressed/unwrapped.")
 	return false
 end
 loadNetworkTransformer()
 
-------------------------------------------------------------------------
--- Load ErrorHandler
-------------------------------------------------------------------------
-local ErrorHandler = nil
+local ErrorHandlerModule = nil
 local function loadErrorHandler()
-	if ErrorHandler then return true end
+	if ErrorHandlerModule then return true end
 	local ok, result = pcall(function()
 		return loadstring(game:HttpGet("https://raw.githubusercontent.com/zurai02/Celatial/main/ErrorHandler.lua"))()
 	end)
 	if ok and result then
-		ErrorHandler = result
+		ErrorHandlerModule = result
 		return true
 	end
-	warn("[Celestial] ErrorHandler failed to load. Using fallback pcall wrapper.")
+	warn("[Celestial] ErrorHandler middleware not available. Falling back to Config.Safe for error handling.")
 	return false
 end
 loadErrorHandler()
@@ -177,12 +169,12 @@ local FOLDER_ROOT = "Celestial"
 local FOLDER_CFG = FOLDER_ROOT .. "/Configs"
 local CFG_EXT = ".cltl"
 
-
 ------------------------------------------------------------------------
 -- THEMES
 ------------------------------------------------------------------------
 local Themes = Config.Th
 
+-- Emergency fallback if config themes missing
 if not Themes or not next(Themes) then
 	warn("[Celestial] Config.Th missing — using built-in fallback theme.")
 	Themes = {
@@ -203,7 +195,7 @@ if not Themes or not next(Themes) then
 end
 
 ------------------------------------------------------------------------
--- NOTIFICATIONS LAYER
+-- NOTIFICATIONS
 ------------------------------------------------------------------------
 local _notifScreen = nil
 local _notifHolder = nil
@@ -239,9 +231,6 @@ local function ensureNotifLayer()
 	end
 end
 
-------------------------------------------------------------------------
--- CELESTIAL MAIN TABLE
-------------------------------------------------------------------------
 local Celestial = {}
 Celestial.__index = Celestial
 Celestial.Themes = Themes
@@ -254,34 +243,81 @@ Celestial._flagRegistry = {}
 Celestial._activeCfgFile = nil
 Celestial.SoundEnabled = true
 
--- Expose loaded modules
+------------------------------------------------------------------------
+-- Middleware (ErrorHandler / NetworkTransformer / Serializer)
+-- Modules are exposed as-is; instances are prefixed with _ so it's
+-- always clear which one a piece of code is holding.
+------------------------------------------------------------------------
 Celestial.Serializer = Serializer
-Celestial.NetworkTransformer = NetworkTransformer
-Celestial.ErrorHandler = ErrorHandler
+Celestial.NetworkTransformer = NetworkTransformerModule
+Celestial.ErrorHandler = ErrorHandlerModule
 
--- Initialize ErrorHandler instance
 Celestial._errorHandler = nil
-if ErrorHandler then
-	local ok, eh = pcall(function() return ErrorHandler.New(Celestial) end)
-	if ok then Celestial._errorHandler = eh end
+if ErrorHandlerModule then
+	local ok, eh = pcall(function() return ErrorHandlerModule.New(Celestial) end)
+	if ok and eh then
+		Celestial._errorHandler = eh
+		eh.Silent = false        -- set true to suppress warn() spam
+		eh.NotifyOnError = false -- set true to surface a toast whenever a handled error occurs
+	else
+		warn("[Celestial] ErrorHandler loaded but failed to construct an instance.")
+	end
 end
 
--- Initialize NetworkTransformer instance
 Celestial._networkTransformer = nil
-if NetworkTransformer then
-	local ok, nt = pcall(function() return NetworkTransformer.New(Config) end)
-	if ok then Celestial._networkTransformer = nt end
+if NetworkTransformerModule then
+	local ok, nt = pcall(function() return NetworkTransformerModule.New(Config) end)
+	if ok and nt then
+		Celestial._networkTransformer = nt
+	else
+		warn("[Celestial] NetworkTransformer loaded but failed to construct an instance.")
+	end
 end
 
--- Wrapped safecall using ErrorHandler when available
-local function safeCall(fn, ...)
-	if Celestial._errorHandler then
-		return Celestial._errorHandler:Try(fn, {context = "Celestial"}, ...)
+-- Public helper: run any function safely, with an optional fallback value
+-- and a context label that shows up in ErrorHandler's logs / GetStats().
+function Celestial:SafeCall(fn, opts, ...)
+	opts = opts or {}
+	if self._errorHandler then
+		return self._errorHandler:Try(fn, opts, ...)
 	end
 	return safecall(fn, ...)
 end
 
--- Serializer-aware auto-save
+-- Public helper: wrap a user Callback (e.g. from CreateButton/CreateToggle)
+-- so it can never throw and crash the UI thread.
+function Celestial:WrapCallback(fn, opts)
+	if self._errorHandler then
+		return self._errorHandler:Wrap(fn, opts)
+	end
+	return function(...)
+		local ok, err = pcall(fn, ...)
+		if not ok then warn("[Celestial] Callback error: " .. tostring(err)) end
+	end
+end
+
+-- Public helper: make an HTTP request through the NetworkTransformer
+-- middleware (auto JSON-encode + compress request body, auto decompress
+-- response). Falls back to a plain HttpService call if the middleware
+-- failed to load.
+function Celestial:Fetch(opts)
+	opts = opts or {}
+	if self._networkTransformer then
+		return self._networkTransformer:Request(opts)
+	end
+	local ok, result = pcall(function()
+		if opts.Method == "POST" then
+			local body = opts.Body
+			if type(body) == "table" then body = Http:JSONEncode(body) end
+			return Http:PostAsync(opts.Url, body or "", Enum.HttpContentType.ApplicationJson, false)
+		end
+		return Http:GetAsync(opts.Url)
+	end)
+	if not ok then return false, tostring(result) end
+	return true, result
+end
+
+-- Serializer-aware save
 local function autoSaveFlags()
 	if not Celestial._activeCfgFile then return end
 	local ok, enc
@@ -303,7 +339,9 @@ function Celestial:LoadConfiguration()
 		warn("[Celestial] LoadConfiguration() called but no window has ConfigurationSaving enabled.")
 		return false
 	end
-	if not safecall(isfile, Celestial._activeCfgFile) then return false end
+	if not safecall(isfile, Celestial._activeCfgFile) then
+		return false
+	end
 	local raw = safecall(readfile, Celestial._activeCfgFile)
 	if not raw then return false end
 
@@ -345,8 +383,9 @@ if not next(Themes) then
 	}
 end
 
+
 ------------------------------------------------------------------------
--- ICONS + SOUND + TOOLTIP
+-- ICON SHORTHAND MAP
 ------------------------------------------------------------------------
 Celestial.Icons = {
 	settings = "rbxassetid://10734950309",
@@ -367,6 +406,9 @@ local function resolveIcon(icon)
 	return icon
 end
 
+------------------------------------------------------------------------
+-- SOUND FEEDBACK
+------------------------------------------------------------------------
 local function playSound(id, volume)
 	if not Celestial.SoundEnabled then return end
 	safecall(function()
@@ -383,7 +425,9 @@ local SOUND_HOVER = "rbxassetid://6895079733"
 local SOUND_TOGGLE = "rbxassetid://6895079966"
 local SOUND_NOTIFY = "rbxassetid://6895079591"
 
--- Tooltip layer
+------------------------------------------------------------------------
+-- GLOBAL TOOLTIP
+------------------------------------------------------------------------
 local _tooltipGui, _tooltipLabel, _tooltipBg
 local function ensureTooltipLayer()
 	if _tooltipGui and _tooltipGui.Parent then return end
@@ -437,7 +481,7 @@ local function attachTooltip(inst, text)
 end
 
 ------------------------------------------------------------------------
--- THEME REGISTRATION + NOTIFY + CONFIRM
+-- THEME REGISTRATION
 ------------------------------------------------------------------------
 function Celestial:RegisterTheme(name, themeTable)
 	local base = Themes.Nebula or {}
@@ -453,6 +497,9 @@ function Celestial:GetTooltipLayer()
 	return _tooltipGui
 end
 
+------------------------------------------------------------------------
+-- NOTIFY
+------------------------------------------------------------------------
 function Celestial:Notify(opts)
 	ensureNotifLayer()
 	if not _notifHolder then
@@ -465,7 +512,9 @@ function Celestial:Notify(opts)
 	for _, c in ipairs(_notifHolder:GetChildren()) do
 		if c:IsA("Frame") and c.Name == "Notif" then table.insert(existing, c) end
 	end
-	if #existing >= MAX_VISIBLE_NOTIFS then existing[1]:Destroy() end
+	if #existing >= MAX_VISIBLE_NOTIFS then
+		existing[1]:Destroy()
+	end
 
 	playSound(SOUND_NOTIFY)
 
@@ -584,6 +633,9 @@ function Celestial:Toast(text, notifType, duration)
 	self:Notify({Title = text, Duration = duration or 2.5, Type = notifType or "info"})
 end
 
+------------------------------------------------------------------------
+-- CONFIRM MODAL
+------------------------------------------------------------------------
 function Celestial:Confirm(opts)
 	local t = self.ActiveTheme
 	local screen = make("ScreenGui", {
@@ -1049,6 +1101,7 @@ function Celestial:CreateWindow(opts)
 		and UDim2.new(0, savedPos.x, 0, savedPos.y)
 		or UDim2.new(0.5, -W/2, 0.5, -H/2)
 	tw(win, T_SPRING, {Size = UDim2.new(0, W, 0, H), Position = targetPos, BackgroundTransparency = t.WindowTrans})
+
 
 	-- Window object
 	local Window = {}
@@ -1551,6 +1604,7 @@ function Celestial:CreateWindow(opts)
 			if o.Flag then registerFlag(o.Flag, setState) end
 			return {Set = setState}
 		end
+
 
 		function Tab:CreateSlider(o)
 			local hasDesc = o.Description and o.Description ~= ""
@@ -2372,6 +2426,7 @@ function Celestial:CreateWindow(opts)
 	return Window
 end
 
+
 ------------------------------------------------------------------------
 -- GLOBAL FUNCTIONS
 ------------------------------------------------------------------------
@@ -2411,6 +2466,9 @@ function Celestial:GetStatus()
 		ThemeCount = 0,
 		WindowCount = #self.Windows,
 		CurrentTheme = self.ActiveTheme and "loaded" or "missing",
+		SerializerLoaded = self.Serializer ~= nil,
+		NetworkMiddleware = self._networkTransformer ~= nil,
+		ErrorHandlerMiddleware = self._errorHandler ~= nil,
 	}
 end
 
