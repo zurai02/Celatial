@@ -1,13 +1,34 @@
+--[[
+    Celestial UI Library v3.0.0
+    Integrated Edition
+
+    External dependencies (auto-loaded via game:HttpGet):
+    - https://raw.githubusercontent.com/zurai02/Celatial/main/C.lua
+    - https://raw.githubusercontent.com/zurai02/Celatial/main/CelestialSerialize.lua
+    - https://raw.githubusercontent.com/zurai02/Celatial/main/NetworkTransformer.lua
+    - https://raw.githubusercontent.com/zurai02/Celatial/main/ErrorHandler.lua
+
+    Exposed on Celestial table:
+    - Celestial.Serializer        -> CelestialSerialize module
+    - Celestial.NetworkTransformer -> NetworkTransformer module  
+    - Celestial.ErrorHandler      -> ErrorHandler module
+    - Celestial._errorHandler     -> ErrorHandler instance (with Notify integration)
+    - Celestial._networkTransformer -> NetworkTransformer instance (ready for requests)
+]]
+
 --!optimize 2
 --!strict
 --!native
 
 --[[
     Celestial UI Library v3.0.0
-    Fixed & Serializer-Integrated Edition
+    Integrated Edition with NetworkTransformer, ErrorHandler, CelestialSerialize
 
-    Loads shared utils from: https://raw.githubusercontent.com/zurai02/Celatial/main/C.lua
-    Serializer from: https://raw.githubusercontent.com/zurai02/Celatial/main/CelestialSerialize.lua
+    External loads:
+    C.lua                      -> Config
+    CelestialSerialize.lua     -> Serializer
+    NetworkTransformer.lua     -> NetworkTransformer
+    ErrorHandler.lua           -> ErrorHandler
 ]]
 
 ------------------------------------------------------------------------
@@ -61,12 +82,12 @@ if not Config or not Config.SV then
 			Gradient = function(r, kp, tp, p) return makef("UIGradient", {Rotation = r or 0, Color = kp, Transparency = tp}, p) end,
 		},
 		File = {MakeFolder = function(p) if makefolder and not (isfolder and isfolder(p)) then pcall(makefolder, p) end end},
-		Th = {}, -- Will use built-in fallback below
+		Th = {},
 	}
 end
 
 ------------------------------------------------------------------------
--- Load Serializer (optional but recommended)
+-- Load Serializer
 ------------------------------------------------------------------------
 local Serializer = nil
 local function loadSerializer()
@@ -78,10 +99,46 @@ local function loadSerializer()
 		Serializer = result
 		return true
 	end
-	warn("[Celestial] Serializer not available. Config save/load will use JSON (Color3/Vector3/Enum will NOT persist correctly).")
+	warn("[Celestial] Serializer not available. Config save/load will use JSON.")
 	return false
 end
 loadSerializer()
+
+------------------------------------------------------------------------
+-- Load NetworkTransformer
+------------------------------------------------------------------------
+local NetworkTransformer = nil
+local function loadNetworkTransformer()
+	if NetworkTransformer then return true end
+	local ok, result = pcall(function()
+		return loadstring(game:HttpGet("https://raw.githubusercontent.com/zurai02/Celatial/main/NetworkTransformer.lua"))()
+	end)
+	if ok and result then
+		NetworkTransformer = result
+		return true
+	end
+	warn("[Celestial] NetworkTransformer failed to load. Network compression unavailable.")
+	return false
+end
+loadNetworkTransformer()
+
+------------------------------------------------------------------------
+-- Load ErrorHandler
+------------------------------------------------------------------------
+local ErrorHandler = nil
+local function loadErrorHandler()
+	if ErrorHandler then return true end
+	local ok, result = pcall(function()
+		return loadstring(game:HttpGet("https://raw.githubusercontent.com/zurai02/Celatial/main/ErrorHandler.lua"))()
+	end)
+	if ok and result then
+		ErrorHandler = result
+		return true
+	end
+	warn("[Celestial] ErrorHandler failed to load. Using fallback pcall wrapper.")
+	return false
+end
+loadErrorHandler()
 
 ------------------------------------------------------------------------
 -- Thin alias layer over Config
@@ -120,12 +177,12 @@ local FOLDER_ROOT = "Celestial"
 local FOLDER_CFG = FOLDER_ROOT .. "/Configs"
 local CFG_EXT = ".cltl"
 
+
 ------------------------------------------------------------------------
 -- THEMES
 ------------------------------------------------------------------------
 local Themes = Config.Th
 
--- Emergency fallback if config themes missing
 if not Themes or not next(Themes) then
 	warn("[Celestial] Config.Th missing — using built-in fallback theme.")
 	Themes = {
@@ -146,7 +203,7 @@ if not Themes or not next(Themes) then
 end
 
 ------------------------------------------------------------------------
--- NOTIFICATIONS
+-- NOTIFICATIONS LAYER
 ------------------------------------------------------------------------
 local _notifScreen = nil
 local _notifHolder = nil
@@ -182,6 +239,9 @@ local function ensureNotifLayer()
 	end
 end
 
+------------------------------------------------------------------------
+-- CELESTIAL MAIN TABLE
+------------------------------------------------------------------------
 local Celestial = {}
 Celestial.__index = Celestial
 Celestial.Themes = Themes
@@ -194,7 +254,34 @@ Celestial._flagRegistry = {}
 Celestial._activeCfgFile = nil
 Celestial.SoundEnabled = true
 
--- Serializer-aware save
+-- Expose loaded modules
+Celestial.Serializer = Serializer
+Celestial.NetworkTransformer = NetworkTransformer
+Celestial.ErrorHandler = ErrorHandler
+
+-- Initialize ErrorHandler instance
+Celestial._errorHandler = nil
+if ErrorHandler then
+	local ok, eh = pcall(function() return ErrorHandler.New(Celestial) end)
+	if ok then Celestial._errorHandler = eh end
+end
+
+-- Initialize NetworkTransformer instance
+Celestial._networkTransformer = nil
+if NetworkTransformer then
+	local ok, nt = pcall(function() return NetworkTransformer.New(Config) end)
+	if ok then Celestial._networkTransformer = nt end
+end
+
+-- Wrapped safecall using ErrorHandler when available
+local function safeCall(fn, ...)
+	if Celestial._errorHandler then
+		return Celestial._errorHandler:Try(fn, {context = "Celestial"}, ...)
+	end
+	return safecall(fn, ...)
+end
+
+-- Serializer-aware auto-save
 local function autoSaveFlags()
 	if not Celestial._activeCfgFile then return end
 	local ok, enc
@@ -216,9 +303,7 @@ function Celestial:LoadConfiguration()
 		warn("[Celestial] LoadConfiguration() called but no window has ConfigurationSaving enabled.")
 		return false
 	end
-	if not safecall(isfile, Celestial._activeCfgFile) then
-		return false
-	end
+	if not safecall(isfile, Celestial._activeCfgFile) then return false end
 	local raw = safecall(readfile, Celestial._activeCfgFile)
 	if not raw then return false end
 
@@ -260,9 +345,8 @@ if not next(Themes) then
 	}
 end
 
-
 ------------------------------------------------------------------------
--- ICON SHORTHAND MAP
+-- ICONS + SOUND + TOOLTIP
 ------------------------------------------------------------------------
 Celestial.Icons = {
 	settings = "rbxassetid://10734950309",
@@ -283,9 +367,6 @@ local function resolveIcon(icon)
 	return icon
 end
 
-------------------------------------------------------------------------
--- SOUND FEEDBACK
-------------------------------------------------------------------------
 local function playSound(id, volume)
 	if not Celestial.SoundEnabled then return end
 	safecall(function()
@@ -302,9 +383,7 @@ local SOUND_HOVER = "rbxassetid://6895079733"
 local SOUND_TOGGLE = "rbxassetid://6895079966"
 local SOUND_NOTIFY = "rbxassetid://6895079591"
 
-------------------------------------------------------------------------
--- GLOBAL TOOLTIP
-------------------------------------------------------------------------
+-- Tooltip layer
 local _tooltipGui, _tooltipLabel, _tooltipBg
 local function ensureTooltipLayer()
 	if _tooltipGui and _tooltipGui.Parent then return end
@@ -358,7 +437,7 @@ local function attachTooltip(inst, text)
 end
 
 ------------------------------------------------------------------------
--- THEME REGISTRATION
+-- THEME REGISTRATION + NOTIFY + CONFIRM
 ------------------------------------------------------------------------
 function Celestial:RegisterTheme(name, themeTable)
 	local base = Themes.Nebula or {}
@@ -374,9 +453,6 @@ function Celestial:GetTooltipLayer()
 	return _tooltipGui
 end
 
-------------------------------------------------------------------------
--- NOTIFY
-------------------------------------------------------------------------
 function Celestial:Notify(opts)
 	ensureNotifLayer()
 	if not _notifHolder then
@@ -389,9 +465,7 @@ function Celestial:Notify(opts)
 	for _, c in ipairs(_notifHolder:GetChildren()) do
 		if c:IsA("Frame") and c.Name == "Notif" then table.insert(existing, c) end
 	end
-	if #existing >= MAX_VISIBLE_NOTIFS then
-		existing[1]:Destroy()
-	end
+	if #existing >= MAX_VISIBLE_NOTIFS then existing[1]:Destroy() end
 
 	playSound(SOUND_NOTIFY)
 
@@ -510,9 +584,6 @@ function Celestial:Toast(text, notifType, duration)
 	self:Notify({Title = text, Duration = duration or 2.5, Type = notifType or "info"})
 end
 
-------------------------------------------------------------------------
--- CONFIRM MODAL
-------------------------------------------------------------------------
 function Celestial:Confirm(opts)
 	local t = self.ActiveTheme
 	local screen = make("ScreenGui", {
@@ -978,7 +1049,6 @@ function Celestial:CreateWindow(opts)
 		and UDim2.new(0, savedPos.x, 0, savedPos.y)
 		or UDim2.new(0.5, -W/2, 0.5, -H/2)
 	tw(win, T_SPRING, {Size = UDim2.new(0, W, 0, H), Position = targetPos, BackgroundTransparency = t.WindowTrans})
-
 
 	-- Window object
 	local Window = {}
@@ -1481,7 +1551,6 @@ function Celestial:CreateWindow(opts)
 			if o.Flag then registerFlag(o.Flag, setState) end
 			return {Set = setState}
 		end
-
 
 		function Tab:CreateSlider(o)
 			local hasDesc = o.Description and o.Description ~= ""
@@ -2302,7 +2371,6 @@ function Celestial:CreateWindow(opts)
 	table.insert(self.Windows, Window)
 	return Window
 end
-
 
 ------------------------------------------------------------------------
 -- GLOBAL FUNCTIONS
