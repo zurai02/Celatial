@@ -1,29 +1,164 @@
+--[[
+    ModuleStorage v2.0
+    Centralized module loader for Roblox exploit environments.
+    Host this on GitHub and require it from any script.
+
+    USAGE:
+        local MS = loadstring(game:HttpGet("YOUR_RAW_GITHUB_URL"))()
+
+        -- Load a single module
+        local Config = MS:Load("Config")
+
+        -- Load all registered modules at once
+        local All = MS:Load("everything")
+        -- All.Config, All.Serializer, etc.
+
+        -- Load specific modules in parallel
+        local Batch = MS:LoadBatch({"Config", "Serializer", "AntiLeak"})
+
+        -- Check what loaded and what failed
+        local Status = MS:GetStatus()
+        for name, info in pairs(Status) do
+            print(name, info.Loaded and "OK" or "FAIL", info.Error or "")
+        end
+--]]
+
 local ModuleStorage = {
-    Config = "https://githubusercontent.com",
-    PlayerTracker = "https://raw.githubusercontent.com/zurai02/Celatial/main/PlayerTracker",
+    -- ═══════════════════════════════════════════════════════════════
+    -- Registry: name → raw GitHub URL
+    -- ═══════════════════════════════════════════════════════════════
+    Config             = "https://raw.githubusercontent.com/zurai02/Celatial/main/C.lua",
+    Serializer         = "https://raw.githubusercontent.com/zurai02/Celatial/main/CelestialSerialize.lua",
+    NetworkTransformer = "https://raw.githubusercontent.com/zurai02/Celatial/main/NetworkTransformer.lua",
+    ErrorHandler       = "https://raw.githubusercontent.com/zurai02/Celatial/main/ErrorHandler.lua",
+    AntiLeak           = "https://raw.githubusercontent.com/zurai02/Celatial/main/Antileak.lua",
 }
 
+-- Internal caches
+local _cache       = {}   -- name → loaded module
+local _status      = {}   -- name → {Loaded: bool, Error: string?, Module: any}
+local _inProgress  = {}   -- name → thread (prevent double-loading)
+
+-- ═══════════════════════════════════════════════════════════════
+-- Core Loader
+-- ═══════════════════════════════════════════════════════════════
+
 function ModuleStorage:Load(name)
+    -- Special keyword: load EVERYTHING registered
+    if name == "everything" or name == "all" then
+        return self:LoadAll()
+    end
+
     local url = self[name]
     if not url then
-        warn("[ModuleStorage] " .. tostring(name) .. " not found")
+        warn("[ModuleStorage] '" .. tostring(name) .. "' not found in registry.")
+        _status[name] = {Loaded = false, Error = "Not in registry", Module = nil}
         return nil
     end
 
+    -- Return cached result immediately
+    if _cache[name] ~= nil then
+        return _cache[name]
+    end
+
+    -- Prevent simultaneous duplicate fetches
+    if _inProgress[name] then
+        -- Wait for the in-progress load to finish
+        while _inProgress[name] do
+            task.wait(0.03)
+        end
+        return _cache[name]
+    end
+
+    _inProgress[name] = coroutine.running()
+
     local success, result = pcall(function()
-        return loadstring(game:HttpGet(url))()
+        local src = game:HttpGet(url, true)
+        local fn, loadErr = loadstring(src, "[" .. name .. "]")
+        if not fn then
+            error("Loadstring failed: " .. tostring(loadErr))
+        end
+        return fn()
     end)
 
+    _inProgress[name] = nil
+
     if success then
+        _cache[name]      = result
+        _status[name]     = {Loaded = true, Error = nil, Module = result}
         return result
     else
-        warn("[ModuleStorage] Failed to load " .. name .. ": " .. tostring(result))
+        _cache[name]      = nil
+        _status[name]     = {Loaded = false, Error = tostring(result), Module = nil}
+        warn("[ModuleStorage] Failed to load '" .. name .. "': " .. tostring(result))
         return nil
     end
 end
 
+-- ═══════════════════════════════════════════════════════════════
+-- Batch / Parallel Loading
+-- ═══════════════════════════════════════════════════════════════
+
+function ModuleStorage:LoadBatch(names)
+    local results = {}
+    local threads = {}
+
+    for _, name in ipairs(names) do
+        table.insert(threads, task.spawn(function()
+            results[name] = self:Load(name)
+        end))
+    end
+
+    -- Wait for all to finish (with safety timeout)
+    local start = os.clock()
+    local allDone = false
+    while not allDone and (os.clock() - start) < 15 do
+        allDone = true
+        for _, name in ipairs(names) do
+            if _inProgress[name] then
+                allDone = false
+                break
+            end
+        end
+        if not allDone then
+            task.wait(0.05)
+        end
+    end
+
+    return results
+end
+
+function ModuleStorage:LoadAll()
+    local names = {}
+    for name, url in pairs(self) do
+        if type(url) == "string" then
+            table.insert(names, name)
+        end
+    end
+    return self:LoadBatch(names)
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- Registry Management
+-- ═══════════════════════════════════════════════════════════════
+
 function ModuleStorage:Add(name, url)
+    if type(name) ~= "string" or type(url) ~= "string" then
+        warn("[ModuleStorage] Add() requires string name and url.")
+        return false
+    end
     self[name] = url
+    return true
+end
+
+function ModuleStorage:Remove(name)
+    self[name] = nil
+    _cache[name] = nil
+    _status[name] = nil
+end
+
+function ModuleStorage:GetUrl(name)
+    return self[name]
 end
 
 function ModuleStorage:List()
@@ -33,7 +168,61 @@ function ModuleStorage:List()
             table.insert(list, name)
         end
     end
+    table.sort(list)
     return list
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- Introspection & Debugging
+-- ═══════════════════════════════════════════════════════════════
+
+function ModuleStorage:GetStatus(name)
+    if name then
+        return _status[name]
+    end
+    -- Return deep copy of all statuses
+    local copy = {}
+    for k, v in pairs(_status) do
+        copy[k] = {
+            Loaded  = v.Loaded,
+            Error   = v.Error,
+            Cached  = _cache[k] ~= nil,
+        }
+    end
+    return copy
+end
+
+function ModuleStorage:IsLoaded(name)
+    return _cache[name] ~= nil
+end
+
+function ModuleStorage:GetCache()
+    local out = {}
+    for name, mod in pairs(_cache) do
+        out[name] = mod
+    end
+    return out
+end
+
+function ModuleStorage:ClearCache()
+    table.clear(_cache)
+    table.clear(_status)
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- Pretty Print Summary
+-- ═══════════════════════════════════════════════════════════════
+
+function ModuleStorage:PrintSummary()
+    print("═══ ModuleStorage Summary ═══")
+    local all = self:List()
+    print("Registered:", #all)
+    for _, name in ipairs(all) do
+        local s = _status[name]
+        local state = s and (s.Loaded and "✓ LOADED" or "✗ FAILED: " .. tostring(s.Error)) or "○ NOT LOADED"
+        print("  ", name, "→", state)
+    end
+    print("══════════════════════════════")
 end
 
 return ModuleStorage
