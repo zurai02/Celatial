@@ -3,200 +3,9 @@
 --!native
 
 --[[
-    Celestial UI Library v3.1.0
-    ModuleStorage-Integrated Edition
-
-    Dependencies loaded via ModuleStorage:
-        Config             → MS:Load("Config")
-        Serializer         → MS:Load("Serializer")
-        NetworkTransformer → MS:Load("NetworkTransformer")
-        ErrorHandler       → MS:Load("ErrorHandler")
+    Celestial UI Library v3.1.0 - SELF-CONTAINED EDITION
+    All external dependencies inlined. No network calls needed.
 ]]
-
-------------------------------------------------------------------------
--- Bootstrap ModuleStorage
-------------------------------------------------------------------------
-local ModuleStorageURL = "https://raw.githubusercontent.com/zurai02/Celatial/main/Modules"
-
-local MS
-local msOk, msErr = pcall(function()
-    MS = loadstring(game:HttpGet(ModuleStorageURL, true))()
-end)
-
-if not msOk or not MS then
-    warn("[Celestial] CRITICAL: ModuleStorage failed to load (" .. tostring(msErr or "unknown") .. "). Falling back to direct fetches.")
-    -- Build a minimal compatibility shim so the rest of the file can stay intact
-    MS = {
-        Load = function(_, name)
-            local urls = {
-                Config             = "https://raw.githubusercontent.com/zurai02/Celatial/main/C.lua",
-                Serializer         = "https://raw.githubusercontent.com/zurai02/Celatial/main/CelestialSerialize.lua",
-                NetworkTransformer = "https://raw.githubusercontent.com/zurai02/Celatial/main/NetworkTransformer.lua",
-                ErrorHandler       = "https://raw.githubusercontent.com/zurai02/Celatial/main/ErrorHandler.lua",
-            }
-            local url = urls[name]
-            if not url then
-                warn("[ModuleStorage shim] '" .. tostring(name) .. "' not in registry.")
-                return nil
-            end
-            local ok, result = pcall(function()
-                return loadstring(game:HttpGet(url, true))()
-            end)
-            if ok then
-                return result
-            else
-                warn("[ModuleStorage shim] Failed to load '" .. name .. "': " .. tostring(result))
-                return nil
-            end
-        end
-    }
-end
-
-------------------------------------------------------------------------
--- Load Shared Config via ModuleStorage
-------------------------------------------------------------------------
-local Config
-local cfgOk, cfgResult = pcall(function()
-    return MS:Load("Config")
-end)
-
-if cfgOk and cfgResult then
-    Config = cfgResult
-else
-    warn("[Celestial] Failed to fetch Config via ModuleStorage (" .. tostring(cfgResult) .. "). Using minimal fallback.")
-end
-
--- Fallback if Config fails to load
-if not Config or not Config.SV then
-    warn("[Celestial] Failed to load shared config (Config). Using minimal fallback.")
-    local UISf = game:GetService("UserInputService")
-    local TSf  = game:GetService("TweenService")
-    local function makef(cls, props, parent)
-        local i = Instance.new(cls)
-        for k, v in pairs(props or {}) do pcall(function() (i :: any)[k] = v end) end
-        if parent then i.Parent = parent end
-        return i
-    end
-    Config = {
-        SV = {
-            UserInputService = UISf, TweenService = TSf,
-            Players = game:GetService("Players"), CoreGui = game:GetService("CoreGui"),
-            HttpService = game:GetService("HttpService"), RunService = game:GetService("RunService"),
-            TextService = game:GetService("TextService"), SoundService = game:GetService("SoundService"),
-        },
-        Safe = function(fn, ...)
-            if type(fn) ~= "function" then return nil end
-            local ok, r = pcall(fn, ...)
-            if not ok then warn("[Celestial] " .. tostring(r)) return nil end
-            return r
-        end,
-        Tween = function(inst, info, goals)
-            if not inst then return nil end
-            local t = TSf:Create(inst, info, goals)
-            t:Play()
-            return t
-        end,
-        TW = {
-            Fast   = TweenInfo.new(0.12, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
-            Med    = TweenInfo.new(0.22, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
-            Slow   = TweenInfo.new(0.38, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
-            Spring = TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
-            Soft   = TweenInfo.new(0.5, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
-        },
-        N = {
-            Make   = makef,
-            Corner = function(r, p) return makef("UICorner", {CornerRadius = UDim.new(0, r)}, p) end,
-            Pad    = function(l, r, t, b, p) return makef("UIPadding", {PaddingLeft = UDim.new(0, l or 0), PaddingRight = UDim.new(0, r or 0), PaddingTop = UDim.new(0, t or 0), PaddingBottom = UDim.new(0, b or 0)}, p) end,
-            Stroke = function(c, th, tr, p) return makef("UIStroke", {Color = c, Thickness = th or 1, Transparency = tr or 0, ApplyStrokeMode = Enum.ApplyStrokeMode.Border}, p) end,
-            List   = function(dir, sort, sp, p) return makef("UIListLayout", {FillDirection = dir or Enum.FillDirection.Vertical, SortOrder = sort or Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, sp or 6)}, p) end,
-            Gradient = function(r, kp, tp, p) return makef("UIGradient", {Rotation = r or 0, Color = kp, Transparency = tp}, p) end,
-        },
-        File = {MakeFolder = function(p) if makefolder and not (isfolder and isfolder(p)) then pcall(makefolder, p) end end},
-        Th = {}, -- Will use built-in fallback below
-    }
-end
-
-------------------------------------------------------------------------
--- Load Serializer via ModuleStorage
-------------------------------------------------------------------------
-local Serializer = nil
-local function loadSerializer()
-    if Serializer then return true end
-    local ok, result = pcall(function()
-        return MS:Load("Serializer")
-    end)
-    if ok and result then
-        Serializer = result
-        return true
-    end
-    warn("[Celestial] Serializer not available via ModuleStorage. Config save/load will use JSON (Color3/Vector3/Enum will NOT persist correctly).")
-    return false
-end
-loadSerializer()
-
-------------------------------------------------------------------------
--- Load Middleware via ModuleStorage
-------------------------------------------------------------------------
-local NetworkTransformerModule = nil
-local function loadNetworkTransformer()
-    if NetworkTransformerModule then return true end
-    local ok, result = pcall(function()
-        return MS:Load("NetworkTransformer")
-    end)
-    if ok and result then
-        NetworkTransformerModule = result
-        return true
-    end
-    warn("[Celestial] NetworkTransformer middleware not available via ModuleStorage. Network calls will be uncompressed/unwrapped.")
-    return false
-end
-loadNetworkTransformer()
-
-local ErrorHandlerModule = nil
-local function loadErrorHandler()
-    if ErrorHandlerModule then return true end
-    local ok, result = pcall(function()
-        return MS:Load("ErrorHandler")
-    end)
-    if ok and result then
-        ErrorHandlerModule = result
-        return true
-    end
-    warn("[Celestial] ErrorHandler middleware not available via ModuleStorage. Falling back to Config.Safe for error handling.")
-    return false
-end
-loadErrorHandler()
-
-------------------------------------------------------------------------
--- Thin alias layer over Config
-------------------------------------------------------------------------
-local UIS          = Config.SV.UserInputService
-local TweenService = Config.SV.TweenService
-local Players      = Config.SV.Players
-local CoreGui      = Config.SV.CoreGui
-local Http         = Config.SV.HttpService
-local Run          = Config.SV.RunService
-local TextService  = Config.SV.TextService
-local SoundService = Config.SV.SoundService
-
-local IS_STUDIO = Run:IsStudio()
-
-local safecall = Config.Safe
-local folder   = Config.File.MakeFolder
-local tw       = Config.Tween
-
-local T_FAST        = Config.TW.Fast
-local T_MED         = Config.TW.Med
-local T_SLOW        = Config.TW.Slow
-local T_SPRING      = Config.TW.Spring
-local T_SPRING_SOFT = Config.TW.Soft
-
-local make       = Config.N.Make
-local corner     = Config.N.Corner
-local pad        = Config.N.Pad
-local stroke     = Config.N.Stroke
-local listLayout = Config.N.List
-local gradient   = Config.N.Gradient
 
 local VERSION = "3.1.0"
 local NAME    = "Celestial"
@@ -205,28 +14,147 @@ local FOLDER_CFG  = FOLDER_ROOT .. "/Configs"
 local CFG_EXT     = ".cltl"
 
 ------------------------------------------------------------------------
--- THEMES
+-- SERVICES
 ------------------------------------------------------------------------
-local Themes = Config.Th
+local Players      = game:GetService("Players")
+local CoreGui      = game:GetService("CoreGui")
+local HttpService  = game:GetService("HttpService")
+local RunService   = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local TextService  = game:GetService("TextService")
+local SoundService = game:GetService("SoundService")
 
--- Emergency fallback if config themes missing
-if not Themes or not next(Themes) then
-    warn("[Celestial] Config.Th missing — using built-in fallback theme.")
-    Themes = {
-        Nebula = {
-            Accent = Color3.fromRGB(138, 107, 255), AccentDim = Color3.fromRGB(96, 74, 200),
-            AccentHover = Color3.fromRGB(162, 135, 255), AccentText = Color3.fromRGB(255, 255, 255),
-            WindowBg = Color3.fromRGB(17, 15, 26), WindowBg2 = Color3.fromRGB(11, 10, 19), WindowTrans = 0.03,
-            Surface = Color3.fromRGB(255, 255, 255), SurfaceTrans = 0.94, SurfaceDeep = Color3.fromRGB(255, 255, 255),
-            SurfaceDeepTrans = 0.905, SurfaceHover = 0.86, TopbarBg = Color3.fromRGB(20, 18, 30), TopbarTrans = 0.25,
-            SidebarBg = Color3.fromRGB(15, 13, 23), SidebarTrans = 0.35, Divider = Color3.fromRGB(255, 255, 255), DividerTrans = 0.90,
-            TextPrimary = Color3.fromRGB(247, 246, 255), TextSecondary = Color3.fromRGB(196, 191, 222), TextMuted = Color3.fromRGB(140, 134, 170),
-            StrokeLight = Color3.fromRGB(255, 255, 255), StrokeLightTrans = 0.88, StrokeDark = Color3.fromRGB(110, 95, 175), StrokeDarkTrans = 0.68,
-            Toggle = Color3.fromRGB(138, 107, 255), ToggleOff = Color3.fromRGB(58, 54, 80),
-            SliderFill = Color3.fromRGB(138, 107, 255), SliderTrack = Color3.fromRGB(46, 42, 68),
-            Ripple = Color3.fromRGB(205, 190, 255), Shadow = Color3.fromRGB(3, 2, 10), Glow = Color3.fromRGB(138, 107, 255),
-        },
-    }
+local IS_STUDIO = RunService:IsStudio()
+
+------------------------------------------------------------------------
+-- SAFE CALL HELPER
+------------------------------------------------------------------------
+local function safecall(fn, ...)
+    if type(fn) ~= "function" then return nil end
+    local ok, r = pcall(fn, ...)
+    if not ok then warn("[Celestial] " .. tostring(r)) return nil end
+    return r
+end
+
+------------------------------------------------------------------------
+-- INSTANCE FACTORY
+------------------------------------------------------------------------
+local function make(cls, props, parent)
+    local i = Instance.new(cls)
+    for k, v in pairs(props or {}) do
+        pcall(function() i[k] = v end)
+    end
+    if parent then i.Parent = parent end
+    return i
+end
+
+local function corner(r, p) return make("UICorner", {CornerRadius = UDim.new(0, r)}, p) end
+local function pad(l, r, t, b, p) return make("UIPadding", {PaddingLeft = UDim.new(0, l or 0), PaddingRight = UDim.new(0, r or 0), PaddingTop = UDim.new(0, t or 0), PaddingBottom = UDim.new(0, b or 0)}, p) end
+local function stroke(c, th, tr, p) return make("UIStroke", {Color = c, Thickness = th or 1, Transparency = tr or 0, ApplyStrokeMode = Enum.ApplyStrokeMode.Border}, p) end
+local function listLayout(dir, sort, sp, p) return make("UIListLayout", {FillDirection = dir or Enum.FillDirection.Vertical, SortOrder = sort or Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, sp or 6)}, p) end
+local function gradient(r, kp, tp, p) return make("UIGradient", {Rotation = r or 0, Color = kp, Transparency = tp}, p) end
+
+------------------------------------------------------------------------
+-- TWEEN PRESETS
+------------------------------------------------------------------------
+local T_FAST        = TweenInfo.new(0.12, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+local T_MED         = TweenInfo.new(0.22, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+local T_SLOW        = TweenInfo.new(0.38, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+local T_SPRING      = TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local T_SPRING_SOFT = TweenInfo.new(0.5, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+
+local function tw(inst, info, goals)
+    if not inst then return nil end
+    local t = TweenService:Create(inst, info, goals)
+    t:Play()
+    return t
+end
+
+------------------------------------------------------------------------
+-- THEMES (FULLY INLINED)
+------------------------------------------------------------------------
+local Themes = {
+    Nebula = {
+        Accent = Color3.fromRGB(138, 107, 255), AccentDim = Color3.fromRGB(96, 74, 200),
+        AccentHover = Color3.fromRGB(162, 135, 255), AccentText = Color3.fromRGB(255, 255, 255),
+        WindowBg = Color3.fromRGB(17, 15, 26), WindowBg2 = Color3.fromRGB(11, 10, 19), WindowTrans = 0.03,
+        Surface = Color3.fromRGB(255, 255, 255), SurfaceTrans = 0.94, SurfaceDeep = Color3.fromRGB(255, 255, 255),
+        SurfaceDeepTrans = 0.905, SurfaceHover = 0.86, TopbarBg = Color3.fromRGB(20, 18, 30), TopbarTrans = 0.25,
+        SidebarBg = Color3.fromRGB(15, 13, 23), SidebarTrans = 0.35, Divider = Color3.fromRGB(255, 255, 255), DividerTrans = 0.90,
+        TextPrimary = Color3.fromRGB(247, 246, 255), TextSecondary = Color3.fromRGB(196, 191, 222), TextMuted = Color3.fromRGB(140, 134, 170),
+        StrokeLight = Color3.fromRGB(255, 255, 255), StrokeLightTrans = 0.88, StrokeDark = Color3.fromRGB(110, 95, 175), StrokeDarkTrans = 0.68,
+        Toggle = Color3.fromRGB(138, 107, 255), ToggleOff = Color3.fromRGB(58, 54, 80),
+        SliderFill = Color3.fromRGB(138, 107, 255), SliderTrack = Color3.fromRGB(46, 42, 68),
+        Ripple = Color3.fromRGB(205, 190, 255), Shadow = Color3.fromRGB(3, 2, 10), Glow = Color3.fromRGB(138, 107, 255),
+    },
+    Aurora = {
+        Accent = Color3.fromRGB(0, 255, 178), AccentDim = Color3.fromRGB(0, 200, 140),
+        AccentHover = Color3.fromRGB(50, 255, 200), AccentText = Color3.fromRGB(255, 255, 255),
+        WindowBg = Color3.fromRGB(10, 18, 22), WindowBg2 = Color3.fromRGB(6, 12, 15), WindowTrans = 0.03,
+        Surface = Color3.fromRGB(255, 255, 255), SurfaceTrans = 0.94, SurfaceDeep = Color3.fromRGB(255, 255, 255),
+        SurfaceDeepTrans = 0.905, SurfaceHover = 0.86, TopbarBg = Color3.fromRGB(12, 22, 26), TopbarTrans = 0.25,
+        SidebarBg = Color3.fromRGB(8, 16, 20), SidebarTrans = 0.35, Divider = Color3.fromRGB(255, 255, 255), DividerTrans = 0.90,
+        TextPrimary = Color3.fromRGB(240, 255, 250), TextSecondary = Color3.fromRGB(180, 210, 200), TextMuted = Color3.fromRGB(120, 150, 140),
+        StrokeLight = Color3.fromRGB(255, 255, 255), StrokeLightTrans = 0.88, StrokeDark = Color3.fromRGB(0, 180, 130), StrokeDarkTrans = 0.68,
+        Toggle = Color3.fromRGB(0, 255, 178), ToggleOff = Color3.fromRGB(40, 60, 55),
+        SliderFill = Color3.fromRGB(0, 255, 178), SliderTrack = Color3.fromRGB(30, 50, 45),
+        Ripple = Color3.fromRGB(150, 255, 220), Shadow = Color3.fromRGB(2, 8, 6), Glow = Color3.fromRGB(0, 255, 178),
+    },
+    Crimson = {
+        Accent = Color3.fromRGB(255, 60, 90), AccentDim = Color3.fromRGB(200, 40, 65),
+        AccentHover = Color3.fromRGB(255, 90, 120), AccentText = Color3.fromRGB(255, 255, 255),
+        WindowBg = Color3.fromRGB(22, 10, 12), WindowBg2 = Color3.fromRGB(15, 6, 8), WindowTrans = 0.03,
+        Surface = Color3.fromRGB(255, 255, 255), SurfaceTrans = 0.94, SurfaceDeep = Color3.fromRGB(255, 255, 255),
+        SurfaceDeepTrans = 0.905, SurfaceHover = 0.86, TopbarBg = Color3.fromRGB(26, 12, 14), TopbarTrans = 0.25,
+        SidebarBg = Color3.fromRGB(20, 8, 10), SidebarTrans = 0.35, Divider = Color3.fromRGB(255, 255, 255), DividerTrans = 0.90,
+        TextPrimary = Color3.fromRGB(255, 240, 242), TextSecondary = Color3.fromRGB(210, 180, 185), TextMuted = Color3.fromRGB(150, 120, 125),
+        StrokeLight = Color3.fromRGB(255, 255, 255), StrokeLightTrans = 0.88, StrokeDark = Color3.fromRGB(200, 50, 75), StrokeDarkTrans = 0.68,
+        Toggle = Color3.fromRGB(255, 60, 90), ToggleOff = Color3.fromRGB(60, 35, 40),
+        SliderFill = Color3.fromRGB(255, 60, 90), SliderTrack = Color3.fromRGB(50, 30, 35),
+        Ripple = Color3.fromRGB(255, 150, 170), Shadow = Color3.fromRGB(10, 3, 4), Glow = Color3.fromRGB(255, 60, 90),
+    },
+}
+
+------------------------------------------------------------------------
+-- FILE SYSTEM HELPERS
+------------------------------------------------------------------------
+local function makeFolder(p)
+    if makefolder and not (isfolder and isfolder(p)) then
+        pcall(makefolder, p)
+    end
+end
+
+------------------------------------------------------------------------
+-- SOUND FEEDBACK
+------------------------------------------------------------------------
+local Celestial = {}
+Celestial.__index = Celestial
+Celestial.Themes = Themes
+Celestial.ActiveTheme = Themes.Nebula
+Celestial.Windows = {}
+Celestial.Flags = {}
+Celestial.Version = VERSION
+Celestial.Name = NAME
+Celestial._flagRegistry = {}
+Celestial._activeCfgFile = nil
+Celestial.SoundEnabled = true
+
+local SOUND_CLICK  = "rbxassetid://6895079853"
+local SOUND_HOVER  = "rbxassetid://6895079733"
+local SOUND_TOGGLE = "rbxassetid://6895079966"
+local SOUND_NOTIFY = "rbxassetid://6895079591"
+
+local function playSound(id, volume)
+    if not Celestial.SoundEnabled then return end
+    safecall(function()
+        local s = Instance.new("Sound")
+        s.SoundId = id
+        s.Volume = volume or 0.4
+        s.Parent = SoundService or CoreGui
+        s:Play()
+        game:GetService("Debris"):AddItem(s, 2)
+    end)
 end
 
 ------------------------------------------------------------------------
@@ -243,10 +171,7 @@ local function ensureNotifLayer()
         IgnoreGuiInset = true,
         ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
     })
-    local parentSuccess = false
-    if CoreGui then
-        parentSuccess = pcall(function() _notifScreen.Parent = CoreGui end)
-    end
+    local parentSuccess = pcall(function() _notifScreen.Parent = CoreGui end)
     if not parentSuccess then
         parentSuccess = pcall(function() _notifScreen.Parent = game:GetService("CoreGui") end)
     end
@@ -266,272 +191,6 @@ local function ensureNotifLayer()
     end
 end
 
-local Celestial = {}
-Celestial.__index = Celestial
-Celestial.Themes = Themes
-Celestial.ActiveTheme = Themes.Nebula or Themes.Aurora or Themes.Void
-Celestial.Windows = {}
-Celestial.Flags = {}
-Celestial.Version = VERSION
-Celestial.Name = NAME
-Celestial._flagRegistry = {}
-Celestial._activeCfgFile = nil
-Celestial.SoundEnabled = true
-
-------------------------------------------------------------------------
--- Middleware (ErrorHandler / NetworkTransformer / Serializer)
-------------------------------------------------------------------------
-Celestial.Serializer = Serializer
-Celestial.NetworkTransformer = NetworkTransformerModule
-Celestial.ErrorHandler = ErrorHandlerModule
-
-Celestial._errorHandler = nil
-if ErrorHandlerModule then
-    local ok, eh = pcall(function() return ErrorHandlerModule.New(Celestial) end)
-    if ok and eh then
-        Celestial._errorHandler = eh
-        eh.Silent = false        -- set true to suppress warn() spam
-        eh.NotifyOnError = false -- set true to surface a toast whenever a handled error occurs
-    else
-        warn("[Celestial] ErrorHandler loaded but failed to construct an instance.")
-    end
-end
-
-Celestial._networkTransformer = nil
-if NetworkTransformerModule then
-    local ok, nt = pcall(function() return NetworkTransformerModule.New(Config) end)
-    if ok and nt then
-        Celestial._networkTransformer = nt
-    else
-        warn("[Celestial] NetworkTransformer loaded but failed to construct an instance.")
-    end
-end
-
--- Public helper: run any function safely, with an optional fallback value
--- and a context label that shows up in ErrorHandler's logs / GetStats().
-function Celestial:SafeCall(fn, opts, ...)
-    opts = opts or {}
-    if self._errorHandler then
-        return self._errorHandler:Try(fn, opts, ...)
-    end
-    return safecall(fn, ...)
-end
-
--- Public helper: wrap a user Callback (e.g. from CreateButton/CreateToggle)
--- so it can never throw and crash the UI thread.
-function Celestial:WrapCallback(fn, opts)
-    if self._errorHandler then
-        return self._errorHandler:Wrap(fn, opts)
-    end
-    return function(...)
-        local ok, err = pcall(fn, ...)
-        if not ok then warn("[Celestial] Callback error: " .. tostring(err)) end
-    end
-end
-
--- Public helper: make an HTTP request through the NetworkTransformer
--- middleware (auto JSON-encode + compress request body, auto decompress
--- response). Falls back to a plain HttpService call if the middleware
--- failed to load.
-function Celestial:Fetch(opts)
-    opts = opts or {}
-    if self._networkTransformer then
-        return self._networkTransformer:Request(opts)
-    end
-    local ok, result = pcall(function()
-        if opts.Method == "POST" then
-            local body = opts.Body
-            if type(body) == "table" then body = Http:JSONEncode(body) end
-            return Http:PostAsync(opts.Url, body or "", Enum.HttpContentType.ApplicationJson, false)
-        end
-        return Http:GetAsync(opts.Url)
-    end)
-    if not ok then return false, tostring(result) end
-    return true, result
-end
-
--- Serializer-aware save
-local function autoSaveFlags()
-    if not Celestial._activeCfgFile then return end
-    local ok, enc
-    if Serializer then
-        ok, enc = pcall(function() return Serializer.Serialize(Celestial.Flags, {PrettyPrint = false}) end)
-    else
-        ok, enc = pcall(function() return Http:JSONEncode(Celestial.Flags) end)
-    end
-    if ok then safecall(writefile, Celestial._activeCfgFile, enc) end
-end
-
-local function registerFlag(flagName, setFn)
-    if not flagName then return end
-    Celestial._flagRegistry[flagName] = setFn
-end
-
-function Celestial:LoadConfiguration()
-    if not Celestial._activeCfgFile then
-        warn("[Celestial] LoadConfiguration() called but no window has ConfigurationSaving enabled.")
-        return false
-    end
-    if not safecall(isfile, Celestial._activeCfgFile) then
-        return false
-    end
-    local raw = safecall(readfile, Celestial._activeCfgFile)
-    if not raw then return false end
-
-    local ok, decoded
-    if Serializer then
-        ok, decoded = pcall(function() return Serializer.Deserialize(raw) end)
-    else
-        ok, decoded = pcall(function() return Http:JSONDecode(raw) end)
-    end
-
-    if not ok or type(decoded) ~= "table" then
-        warn("[Celestial] LoadConfiguration() failed to parse saved config.")
-        return false
-    end
-    local restored = 0
-    for flagName, value in pairs(decoded) do
-        local setFn = Celestial._flagRegistry[flagName]
-        if setFn then
-            safecall(setFn, value)
-            restored += 1
-        end
-        Celestial.Flags[flagName] = value
-    end
-    self:Notify({
-        Title = "Configuration Loaded",
-        Content = restored .. " setting(s) restored",
-        Duration = 2.5,
-        Type = "success",
-    })
-    return true
-end
-
-if not next(Themes) then
-    warn("[Celestial] No themes loaded! Using fallback theme.")
-    Celestial.ActiveTheme = {
-        Accent = Color3.fromRGB(138, 107, 255),
-        AccentHover = Color3.fromRGB(162, 135, 255),
-        WindowBg = Color3.fromRGB(17, 15, 26),
-    }
-end
-
-------------------------------------------------------------------------
--- ICON SHORTHAND MAP
-------------------------------------------------------------------------
-Celestial.Icons = {
-    settings = "rbxassetid://10734950309",
-    home     = "rbxassetid://10723347849",
-    search   = "rbxassetid://10734950706",
-    star     = "rbxassetid://10734950309",
-    bolt     = "rbxassetid://10723347922",
-    eye      = "rbxassetid://10734943412",
-    game     = "rbxassetid://10723347849",
-    info     = "rbxassetid://10747384394",
-    warning  = "rbxassetid://10747384394",
-    shield   = "rbxassetid://10747384394",
-    user     = "rbxassetid://10747384394",
-}
-local function resolveIcon(icon)
-    if not icon then return nil end
-    if Celestial.Icons[icon] then return Celestial.Icons[icon] end
-    return icon
-end
-
-------------------------------------------------------------------------
--- SOUND FEEDBACK
-------------------------------------------------------------------------
-local function playSound(id, volume)
-    if not Celestial.SoundEnabled then return end
-    safecall(function()
-        local s = Instance.new("Sound")
-        s.SoundId = id
-        s.Volume = volume or 0.4
-        s.Parent = SoundService or CoreGui
-        s:Play()
-        game:GetService("Debris"):AddItem(s, 2)
-    end)
-end
-local SOUND_CLICK  = "rbxassetid://6895079853"
-local SOUND_HOVER  = "rbxassetid://6895079733"
-local SOUND_TOGGLE = "rbxassetid://6895079966"
-local SOUND_NOTIFY = "rbxassetid://6895079591"
-
-------------------------------------------------------------------------
--- GLOBAL TOOLTIP
-------------------------------------------------------------------------
-local _tooltipGui, _tooltipLabel, _tooltipBg
-local function ensureTooltipLayer()
-    if _tooltipGui and _tooltipGui.Parent then return end
-    _tooltipGui = make("ScreenGui", {
-        Name = "CelestialTooltip",
-        ResetOnSpawn = false,
-        IgnoreGuiInset = true,
-        ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-        DisplayOrder = 999,
-    })
-    pcall(function() _tooltipGui.Parent = CoreGui end)
-    _tooltipBg = make("Frame", {
-        Name = "Tip",
-        BackgroundColor3 = Color3.fromRGB(20, 18, 28),
-        BackgroundTransparency = 0.05,
-        Size = UDim2.new(0, 0, 0, 26),
-        Visible = false,
-        ZIndex = 500,
-    }, _tooltipGui)
-    corner(6, _tooltipBg)
-    stroke(Color3.fromRGB(255, 255, 255), 1, 0.85, _tooltipBg)
-    _tooltipLabel = make("TextLabel", {
-        Size = UDim2.new(1, -16, 1, 0),
-        Position = UDim2.new(0, 8, 0, 0),
-        BackgroundTransparency = 1,
-        Text = "",
-        TextColor3 = Color3.fromRGB(235, 235, 245),
-        Font = Enum.Font.Gotham,
-        TextSize = 11,
-        ZIndex = 501,
-    }, _tooltipBg)
-end
-
-local function attachTooltip(inst, text)
-    if not text or text == "" then return end
-    inst.MouseEnter:Connect(function()
-        ensureTooltipLayer()
-        _tooltipLabel.Text = text
-        local w = TextService:GetTextSize(text, 11, Enum.Font.Gotham, Vector2.new(400, 20)).X + 16
-        _tooltipBg.Size = UDim2.new(0, w, 0, 26)
-        _tooltipBg.Visible = true
-    end)
-    inst.MouseLeave:Connect(function()
-        if _tooltipBg then _tooltipBg.Visible = false end
-    end)
-    inst.MouseMoved:Connect(function(x, y)
-        if _tooltipBg and _tooltipBg.Visible then
-            _tooltipBg.Position = UDim2.new(0, x + 16, 0, y + 16)
-        end
-    end)
-end
-
-------------------------------------------------------------------------
--- THEME REGISTRATION
-------------------------------------------------------------------------
-function Celestial:RegisterTheme(name, themeTable)
-    local base = Themes.Nebula or {}
-    local merged = {}
-    for k, v in pairs(base) do merged[k] = v end
-    for k, v in pairs(themeTable or {}) do merged[k] = v end
-    Themes[name] = merged
-    return merged
-end
-
-function Celestial:GetTooltipLayer()
-    ensureTooltipLayer()
-    return _tooltipGui
-end
-
-------------------------------------------------------------------------
--- NOTIFY
-------------------------------------------------------------------------
 function Celestial:Notify(opts)
     ensureNotifLayer()
     if not _notifHolder then
@@ -665,6 +324,7 @@ function Celestial:Toast(text, notifType, duration)
     self:Notify({Title = text, Duration = duration or 2.5, Type = notifType or "info"})
 end
 
+
 ------------------------------------------------------------------------
 -- CONFIRM MODAL
 ------------------------------------------------------------------------
@@ -764,32 +424,86 @@ function Celestial:Confirm(opts)
 end
 
 ------------------------------------------------------------------------
+-- GLOBAL TOOLTIP
+------------------------------------------------------------------------
+local _tooltipGui, _tooltipLabel, _tooltipBg
+local function ensureTooltipLayer()
+    if _tooltipGui and _tooltipGui.Parent then return end
+    _tooltipGui = make("ScreenGui", {
+        Name = "CelestialTooltip",
+        ResetOnSpawn = false,
+        IgnoreGuiInset = true,
+        ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+        DisplayOrder = 999,
+    })
+    pcall(function() _tooltipGui.Parent = CoreGui end)
+    _tooltipBg = make("Frame", {
+        Name = "Tip",
+        BackgroundColor3 = Color3.fromRGB(20, 18, 28),
+        BackgroundTransparency = 0.05,
+        Size = UDim2.new(0, 0, 0, 26),
+        Visible = false,
+        ZIndex = 500,
+    }, _tooltipGui)
+    corner(6, _tooltipBg)
+    stroke(Color3.fromRGB(255, 255, 255), 1, 0.85, _tooltipBg)
+    _tooltipLabel = make("TextLabel", {
+        Size = UDim2.new(1, -16, 1, 0),
+        Position = UDim2.new(0, 8, 0, 0),
+        BackgroundTransparency = 1,
+        Text = "",
+        TextColor3 = Color3.fromRGB(235, 235, 245),
+        Font = Enum.Font.Gotham,
+        TextSize = 11,
+        ZIndex = 501,
+    }, _tooltipBg)
+end
+
+local function attachTooltip(inst, text)
+    if not text or text == "" then return end
+    inst.MouseEnter:Connect(function()
+        ensureTooltipLayer()
+        _tooltipLabel.Text = text
+        local w = TextService:GetTextSize(text, 11, Enum.Font.Gotham, Vector2.new(400, 20)).X + 16
+        _tooltipBg.Size = UDim2.new(0, w, 0, 26)
+        _tooltipBg.Visible = true
+    end)
+    inst.MouseLeave:Connect(function()
+        if _tooltipBg then _tooltipBg.Visible = false end
+    end)
+    inst.MouseMoved:Connect(function(x, y)
+        if _tooltipBg and _tooltipBg.Visible then
+            _tooltipBg.Position = UDim2.new(0, x + 16, 0, y + 16)
+        end
+    end)
+end
+
+------------------------------------------------------------------------
 -- CREATE WINDOW
 ------------------------------------------------------------------------
 function Celestial:CreateWindow(opts)
     opts = opts or {}
     local t = Themes[opts.Theme or ""] or self.ActiveTheme
     self.ActiveTheme = t
-    folder(FOLDER_ROOT)
-    folder(FOLDER_CFG)
-    local W = opts.Size and opts.Size.X or 620
-    local H = opts.Size and opts.Size.Y or 420
+    makeFolder(FOLDER_ROOT)
+    makeFolder(FOLDER_CFG)
+    local W = opts.Size and opts.Size.X.Offset or 620
+    local H = opts.Size and opts.Size.Y.Offset or 420
     local sizeLimits = {
         min = Vector2.new(420, 300),
         max = Vector2.new(1200, 850),
     }
 
-    -- Config saving setup
     local cfgOpts = opts.ConfigurationSaving
     local cfgFile, posFile
     local savedPos = nil
     if cfgOpts and cfgOpts.Enabled then
         cfgFile = FOLDER_CFG .. "/" .. (cfgOpts.FileName or opts.Name or "config") .. CFG_EXT
         posFile = FOLDER_CFG .. "/" .. (cfgOpts.FileName or opts.Name or "config") .. "_pos" .. CFG_EXT
-        if safecall(isfile, posFile) then
+        if safecall(isfolder, FOLDER_CFG) and safecall(isfile, posFile) then
             local raw = safecall(readfile, posFile)
             if raw then
-                local ok, dec = pcall(function() return Http:JSONDecode(raw) end)
+                local ok, dec = pcall(function() return HttpService:JSONDecode(raw) end)
                 if ok and dec and dec.w and dec.h then
                     savedPos = dec
                     W, H = dec.w, dec.h
@@ -805,10 +519,7 @@ function Celestial:CreateWindow(opts)
         ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
     })
 
-    local parentSuccess = false
-    if CoreGui then
-        parentSuccess = pcall(function() screen.Parent = CoreGui end)
-    end
+    local parentSuccess = pcall(function() screen.Parent = CoreGui end)
     if not parentSuccess then
         parentSuccess = pcall(function() screen.Parent = game:GetService("CoreGui") end)
     end
@@ -996,7 +707,7 @@ function Celestial:CreateWindow(opts)
                 drag = false
             end
         end)
-        UIS.InputChanged:Connect(function(i)
+        UserInputService.InputChanged:Connect(function(i)
             if drag and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
                 local d = i.Position - startMouse
                 local newX = startPos.X.Offset + d.X
@@ -1106,7 +817,7 @@ function Celestial:CreateWindow(opts)
                 resizing = false
             end
         end)
-        UIS.InputChanged:Connect(function(i)
+        UserInputService.InputChanged:Connect(function(i)
             if resizing and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
                 local d = i.Position - startMouse
                 local newW = math.clamp(startSize.X + d.X, sizeLimits.min.X, sizeLimits.max.X)
@@ -1118,7 +829,7 @@ function Celestial:CreateWindow(opts)
 
     -- Toggle keybind
     local kb = opts.Keybind or Enum.KeyCode.LeftAlt
-    UIS.InputBegan:Connect(function(i, gpe)
+    UserInputService.InputBegan:Connect(function(i, gpe)
         if gpe then return end
         if i.KeyCode == kb then win.Visible = not win.Visible end
     end)
@@ -1132,6 +843,7 @@ function Celestial:CreateWindow(opts)
         and UDim2.new(0, savedPos.x, 0, savedPos.y)
         or UDim2.new(0.5, -W/2, 0.5, -H/2)
     tw(win, T_SPRING, {Size = UDim2.new(0, W, 0, H), Position = targetPos, BackgroundTransparency = t.WindowTrans})
+
 
     -- Window object
     local Window = {}
@@ -1192,7 +904,7 @@ function Celestial:CreateWindow(opts)
         local absSize = inst.AbsoluteSize
         return pos.X >= absPos.X and pos.X <= absPos.X + absSize.X and pos.Y >= absPos.Y and pos.Y <= absPos.Y + absSize.Y
     end
-    UIS.InputBegan:Connect(function(input, gpe)
+    UserInputService.InputBegan:Connect(function(input, gpe)
         if gpe then return end
         if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
         for _, popup in ipairs(Window._openPopups) do
@@ -1209,24 +921,14 @@ function Celestial:CreateWindow(opts)
     if cfgOpts and cfgOpts.Enabled then
         Celestial._activeCfgFile = cfgFile
         function Window:SaveConfig(data)
-            local ok, enc
-            if Serializer then
-                ok, enc = pcall(function() return Serializer.Serialize(data, {PrettyPrint = false}) end)
-            else
-                ok, enc = pcall(function() return Http:JSONEncode(data) end)
-            end
+            local ok, enc = pcall(function() return HttpService:JSONEncode(data) end)
             if ok then safecall(writefile, cfgFile, enc) end
         end
         function Window:LoadConfig()
-            if safecall(isfile, cfgFile) then
+            if safecall(isfolder, FOLDER_CFG) and safecall(isfile, cfgFile) then
                 local raw = safecall(readfile, cfgFile)
                 if raw then
-                    local ok, dec
-                    if Serializer then
-                        ok, dec = pcall(function() return Serializer.Deserialize(raw) end)
-                    else
-                        ok, dec = pcall(function() return Http:JSONDecode(raw) end)
-                    end
+                    local ok, dec = pcall(function() return HttpService:JSONDecode(raw) end)
                     if ok then return dec end
                 end
             end
@@ -1234,7 +936,7 @@ function Celestial:CreateWindow(opts)
         local function savePosition()
             local pos, size = win.Position, win.AbsoluteSize
             local ok, enc = pcall(function()
-                return Http:JSONEncode({x = pos.X.Offset, y = pos.Y.Offset, w = size.X, h = size.Y})
+                return HttpService:JSONEncode({x = pos.X.Offset, y = pos.Y.Offset, w = size.X, h = size.Y})
             end)
             if ok then safecall(writefile, posFile, enc) end
         end
@@ -1253,59 +955,6 @@ function Celestial:CreateWindow(opts)
     function Window:SelectTab(index)
         local tab = self._tabs[index]
         if tab and tab._activate then tab._activate() end
-    end
-
-    -- Tab Groups
-    function Window:CreateTabGroup(name)
-        local theme = self._theme
-        local header = make("TextButton", {
-            Size = UDim2.new(1, 0, 0, 24),
-            BackgroundTransparency = 1,
-            Text = "",
-            AutoButtonColor = false,
-        }, self._sidebar)
-        local headerLabel = make("TextLabel", {
-            Size = UDim2.new(1, -20, 1, 0),
-            BackgroundTransparency = 1,
-            Text = string.upper(name),
-            TextColor3 = theme.TextMuted,
-            Font = Enum.Font.GothamBold,
-            TextSize = 10,
-            TextXAlignment = Enum.TextXAlignment.Left,
-        }, header)
-        local chevron = make("TextLabel", {
-            Position = UDim2.new(1, -16, 0, 0),
-            Size = UDim2.new(0, 16, 1, 0),
-            BackgroundTransparency = 1,
-            Text = "⌄",
-            TextColor3 = theme.TextMuted,
-            Font = Enum.Font.GothamBold,
-            TextSize = 12,
-        }, header)
-        local subContainer = make("Frame", {
-            Size = UDim2.new(1, 0, 0, 0),
-            AutomaticSize = Enum.AutomaticSize.Y,
-            BackgroundTransparency = 1,
-            ClipsDescendants = true,
-        }, self._sidebar)
-        listLayout(Enum.FillDirection.Vertical, Enum.SortOrder.LayoutOrder, 4, subContainer)
-
-        local collapsed = false
-        header.MouseButton1Click:Connect(function()
-            collapsed = not collapsed
-            subContainer.Visible = not collapsed
-            tw(chevron, T_FAST, {Rotation = collapsed and -90 or 0})
-        end)
-        self:_onThemeChange(function(newTheme)
-            headerLabel.TextColor3 = newTheme.TextMuted
-            chevron.TextColor3 = newTheme.TextMuted
-        end)
-
-        local Group = {}
-        function Group:CreateTab(opts)
-            return Window:CreateTab(opts, subContainer)
-        end
-        return Group
     end
 
     -- Create Tab
@@ -1620,7 +1269,6 @@ function Celestial:CreateWindow(opts)
                 playSound(SOUND_TOGGLE)
                 safecall(o.Callback, val)
                 if o.Flag then Celestial.Flags[o.Flag] = val end
-                if o.Flag then autoSaveFlags() end
             end
             clickArea.MouseButton1Down:Connect(function() tw(knob, T_FAST, {Size = UDim2.new(0, 24, 0, 20)}) end)
             clickArea.MouseButton1Up:Connect(function() setState(not state) end)
@@ -1630,7 +1278,6 @@ function Celestial:CreateWindow(opts)
                 local s = track:FindFirstChildWhichIsA("UIStroke")
                 if s then s.Color = newTheme.StrokeLight end
             end)
-            if o.Flag then registerFlag(o.Flag, setState) end
             return {Set = setState}
         end
 
@@ -1712,7 +1359,6 @@ function Celestial:CreateWindow(opts)
                 valLabel.Text = tostring(v) .. (o.Suffix or "")
                 safecall(o.Callback, v)
                 if o.Flag then Celestial.Flags[o.Flag] = v end
-                if o.Flag then autoSaveFlags() end
             end
             local function onInput(input)
                 local rel = math.clamp((input.Position.X - trackBg.AbsolutePosition.X) / trackBg.AbsoluteSize.X, 0, 1)
@@ -1725,10 +1371,10 @@ function Celestial:CreateWindow(opts)
                     tw(thumb, T_FAST, {Size = UDim2.new(0, 19, 0, 19), Position = UDim2.new((value-mn)/(mx-mn), -9, 0.5, -9)})
                 end
             end)
-            UIS.InputChanged:Connect(function(i)
+            UserInputService.InputChanged:Connect(function(i)
                 if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then onInput(i) end
             end)
-            UIS.InputEnded:Connect(function(i)
+            UserInputService.InputEnded:Connect(function(i)
                 if (i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch) and dragging then
                     dragging = false
                     tw(thumb, T_FAST, {Size = UDim2.new(0, 15, 0, 15), Position = UDim2.new((value-mn)/(mx-mn), -7, 0.5, -7)})
@@ -1743,7 +1389,6 @@ function Celestial:CreateWindow(opts)
                 local s = thumb:FindFirstChildWhichIsA("UIStroke")
                 if s then s.Color = newTheme.Accent end
             end)
-            if o.Flag then registerFlag(o.Flag, snapTo) end
             return {Set = snapTo}
         end
 
@@ -1791,7 +1436,6 @@ function Celestial:CreateWindow(opts)
                     if o.Numeric then val = tostring(tonumber(val) or 0) end
                     safecall(o.Callback, val)
                     if o.Flag then Celestial.Flags[o.Flag] = val end
-                    if o.Flag then autoSaveFlags() end
                 end
             end)
             self._window:_onThemeChange(function(newTheme)
@@ -1801,15 +1445,9 @@ function Celestial:CreateWindow(opts)
                 box.TextColor3 = newTheme.TextPrimary
                 box.PlaceholderColor3 = newTheme.TextMuted
             end)
-            local inputSet = function(val)
-                box.Text = tostring(val)
-                safecall(o.Callback, val)
-                if o.Flag then Celestial.Flags[o.Flag] = val end
-                if o.Flag then autoSaveFlags() end
-            end
-            if o.Flag then registerFlag(o.Flag, inputSet) end
-            return {Set = inputSet}
+            return {Set = function(val) box.Text = tostring(val) safecall(o.Callback, val) if o.Flag then Celestial.Flags[o.Flag] = val end end}
         end
+
 
         function Tab:CreateDropdown(o)
             local selected = o.Default or (o.Options[1] or "")
@@ -1943,13 +1581,11 @@ function Celestial:CreateWindow(opts)
                             selBtn.Text = #chosen > 0 and selected or (o.Options[1] or "")
                             safecall(o.Callback, chosen)
                             if o.Flag then Celestial.Flags[o.Flag] = chosen end
-                            if o.Flag then autoSaveFlags() end
                         else
                             selected = opt
                             selBtn.Text = opt
                             safecall(o.Callback, opt)
                             if o.Flag then Celestial.Flags[o.Flag] = opt end
-                            if o.Flag then autoSaveFlags() end
                             open = false
                             popupEntry._isOpen = false
                             stopTracking()
@@ -2003,16 +1639,13 @@ function Celestial:CreateWindow(opts)
                 if s3 then s3.Color = newTheme.StrokeLight end
                 if open then buildItems(o.Options) end
             end)
-            local dropdownSet = function(val)
-                selected = val
-                selBtn.Text = val
-                safecall(o.Callback, val)
-                if o.Flag then Celestial.Flags[o.Flag] = val end
-                if o.Flag then autoSaveFlags() end
-            end
-            if o.Flag then registerFlag(o.Flag, dropdownSet) end
             return {
-                Set = dropdownSet,
+                Set = function(val)
+                    selected = val
+                    selBtn.Text = val
+                    safecall(o.Callback, val)
+                    if o.Flag then Celestial.Flags[o.Flag] = val end
+                end,
                 Refresh = function(newOpts)
                     o.Options = newOpts
                     if open then positionPanel() buildItems(newOpts) end
@@ -2088,7 +1721,6 @@ function Celestial:CreateWindow(opts)
                     preview.BackgroundColor3 = color
                     safecall(o.Callback, color)
                     if o.Flag then Celestial.Flags[o.Flag] = color end
-                    if o.Flag then autoSaveFlags() end
                 end
                 local function makeSlider(labelText, yPos, gradientSeq, initialVal, callback)
                     make("TextLabel", {
@@ -2127,14 +1759,14 @@ function Celestial:CreateWindow(opts)
                             callback(val)
                         end
                     end)
-                    UIS.InputChanged:Connect(function(i)
+                    UserInputService.InputChanged:Connect(function(i)
                         if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
                             local val = math.clamp((i.Position.X - track.AbsolutePosition.X)/track.AbsoluteSize.X, 0, 1)
                             thumb.Position = UDim2.new(val, -6, 0.5, -6)
                             callback(val)
                         end
                     end)
-                    UIS.InputEnded:Connect(function(i)
+                    UserInputService.InputEnded:Connect(function(i)
                         if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
                             dragging = false
                         end
@@ -2166,15 +1798,12 @@ function Celestial:CreateWindow(opts)
                     end
                 end
             end)
-            local colorSet = function(c)
+            return {Set = function(c)
                 color = c
                 preview.BackgroundColor3 = c
                 safecall(o.Callback, c)
                 if o.Flag then Celestial.Flags[o.Flag] = c end
-                if o.Flag then autoSaveFlags() end
-            end
-            if o.Flag then registerFlag(o.Flag, colorSet) end
-            return {Set = colorSet}
+            end}
         end
 
         function Tab:CreateKeybind(o)
@@ -2216,22 +1845,13 @@ function Celestial:CreateWindow(opts)
                 keyBtn.Text = "..."
                 tw(keyBtn, T_FAST, {BackgroundTransparency = 0.4})
             end)
-            UIS.InputBegan:Connect(function(i, gpe)
+            UserInputService.InputBegan:Connect(function(i, gpe)
                 if not binding or gpe then return end
                 if i.UserInputType == Enum.UserInputType.Keyboard then
                     key = i.KeyCode
                     cancelBind()
                     safecall(o.Callback, key)
                     if o.Flag then Celestial.Flags[o.Flag] = key end
-                    if o.Flag then autoSaveFlags() end
-                elseif i.UserInputType == Enum.UserInputType.Gamepad1 then
-                    key = i.KeyCode
-                    cancelBind()
-                    safecall(o.Callback, key)
-                    if o.Flag then Celestial.Flags[o.Flag] = key end
-                    if o.Flag then autoSaveFlags() end
-                elseif i.UserInputType == Enum.UserInputType.Touch then
-                    cancelBind()
                 end
             end)
             if o.Flag then Celestial.Flags[o.Flag] = key end
@@ -2240,15 +1860,12 @@ function Celestial:CreateWindow(opts)
                 local s = keyBtn:FindFirstChildWhichIsA("UIStroke")
                 if s then s.Color = newTheme.Accent end
             end)
-            local keybindSet = function(k)
+            return {Set = function(k)
                 key = k
                 keyBtn.Text = k.Name
                 safecall(o.Callback, k)
                 if o.Flag then Celestial.Flags[o.Flag] = k end
-                if o.Flag then autoSaveFlags() end
-            end
-            if o.Flag then registerFlag(o.Flag, keybindSet) end
-            return {Set = keybindSet}
+            end}
         end
 
         function Tab:CreateProgressBar(o)
@@ -2342,7 +1959,7 @@ function Celestial:CreateWindow(opts)
                 running = true
                 ring.Visible = true
                 local angle = 0
-                spinConn = Run.RenderStepped:Connect(function(dt)
+                spinConn = RunService.RenderStepped:Connect(function(dt)
                     angle = (angle + dt * 360) % 360
                     ring.Rotation = angle
                 end)
@@ -2453,7 +2070,6 @@ function Celestial:CreateWindow(opts)
     return Window
 end
 
-
 ------------------------------------------------------------------------
 -- GLOBAL FUNCTIONS
 ------------------------------------------------------------------------
@@ -2493,14 +2109,9 @@ function Celestial:GetStatus()
         ThemeCount = 0,
         WindowCount = #self.Windows,
         CurrentTheme = self.ActiveTheme and "loaded" or "missing",
-        SerializerLoaded = self.Serializer ~= nil,
-        NetworkMiddleware = self._networkTransformer ~= nil,
-        ErrorHandlerMiddleware = self._errorHandler ~= nil,
     }
 end
 
 function Celestial:IsReady()
     return CoreGui ~= nil and TweenService ~= nil and TextService ~= nil
 end
-
-return Celestial
